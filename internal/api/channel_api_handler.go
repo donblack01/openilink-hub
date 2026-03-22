@@ -2,13 +2,29 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/openilink/openilink-hub/internal/database"
 	"github.com/openilink/openilink-hub/internal/provider"
 )
+
+func encodeCursor(id int64) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("v1:%d", id)))
+}
+
+func decodeCursor(cursor string) (int64, error) {
+	data, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil {
+		return 0, err
+	}
+	var id int64
+	_, err = fmt.Sscanf(string(data), "v1:%d", &id)
+	return id, err
+}
 
 // authenticateChannel extracts and validates the channel API key from the request.
 func (s *Server) authenticateChannel(r *http.Request) (*database.Channel, error) {
@@ -42,8 +58,13 @@ func (s *Server) handleChannelMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	afterSeq := int64(0)
-	if v := r.URL.Query().Get("after"); v != "" {
-		afterSeq, _ = strconv.ParseInt(v, 10, 64)
+	if cursor := r.URL.Query().Get("cursor"); cursor != "" {
+		if id, err := decodeCursor(cursor); err == nil {
+			afterSeq = id
+		} else {
+			jsonError(w, "invalid cursor", http.StatusBadRequest)
+			return
+		}
 	}
 	limit := 50
 	if v := r.URL.Query().Get("limit"); v != "" {
@@ -63,8 +84,17 @@ func (s *Server) handleChannelMessages(w http.ResponseWriter, r *http.Request) {
 		s.DB.UpdateChannelLastSeq(ch.ID, msgs[len(msgs)-1].ID)
 	}
 
+	// Build response with next_cursor
+	var nextCursor string
+	if len(msgs) == limit {
+		nextCursor = encodeCursor(msgs[len(msgs)-1].ID)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(msgs)
+	json.NewEncoder(w).Encode(map[string]any{
+		"messages":    msgs,
+		"next_cursor": nextCursor,
+	})
 }
 
 // POST /api/channel/send?key=xxx

@@ -1164,26 +1164,39 @@ func TestChannelHTTPMessages(t *testing.T) {
 		})
 	}
 
-	resp := httpGet(t, env.srv.URL+"/api/channel/messages?key="+ch.APIKey)
+	// First page
+	resp := httpGet(t, env.srv.URL+"/api/channel/messages?key="+ch.APIKey+"&limit=3")
 	defer resp.Body.Close()
 	assertCode(t, "channel messages", resp.StatusCode, 200)
-	var msgs []any
-	json.NewDecoder(resp.Body).Decode(&msgs)
-	if len(msgs) != 5 {
-		t.Errorf("want 5 messages, got %d", len(msgs))
+	var page1 map[string]any
+	json.NewDecoder(resp.Body).Decode(&page1)
+	msgs := page1["messages"].([]any)
+	if len(msgs) != 3 {
+		t.Fatalf("want 3 messages, got %d", len(msgs))
+	}
+	cursor := page1["next_cursor"].(string)
+	if cursor == "" {
+		t.Fatal("expected next_cursor for pagination")
 	}
 
-	// Pagination with after=
-	firstMsg := msgs[0].(map[string]any)
-	afterID := int64(firstMsg["id"].(float64))
-	resp2 := httpGet(t, fmt.Sprintf("%s/api/channel/messages?key=%s&after=%d&limit=2",
-		env.srv.URL, ch.APIKey, afterID))
+	// Second page using cursor
+	resp2 := httpGet(t, env.srv.URL+"/api/channel/messages?key="+ch.APIKey+"&cursor="+cursor+"&limit=3")
 	defer resp2.Body.Close()
-	var msgs2 []any
-	json.NewDecoder(resp2.Body).Decode(&msgs2)
+	var page2 map[string]any
+	json.NewDecoder(resp2.Body).Decode(&page2)
+	msgs2 := page2["messages"].([]any)
 	if len(msgs2) != 2 {
-		t.Errorf("want 2 messages after=%d, got %d", afterID, len(msgs2))
+		t.Errorf("want 2 remaining messages, got %d", len(msgs2))
 	}
+	// No more pages
+	if page2["next_cursor"] != nil && page2["next_cursor"] != "" {
+		t.Errorf("expected empty next_cursor, got %v", page2["next_cursor"])
+	}
+
+	// Invalid cursor
+	resp3 := httpGet(t, env.srv.URL+"/api/channel/messages?key="+ch.APIKey+"&cursor=bad!")
+	assertCode(t, "invalid cursor", resp3.StatusCode, 400)
+	resp3.Body.Close()
 }
 
 func TestChannelHTTPSend(t *testing.T) {
