@@ -162,6 +162,15 @@ func (s *Server) handleDeleteAIConfig(w http.ResponseWriter, r *http.Request) {
 	jsonOK(w)
 }
 
+// GET /api/features — public endpoint to check which features are available
+func (s *Server) handleFeatures(w http.ResponseWriter, r *http.Request) {
+	globalAI, _ := s.DB.ListConfigByPrefix("ai.")
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]bool{
+		"ai": globalAI["ai.api_key"] != "",
+	})
+}
+
 func maskSecret(s string) string {
 	if len(s) <= 8 {
 		return strings.Repeat("*", len(s))

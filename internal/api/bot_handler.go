@@ -136,6 +136,13 @@ func (s *Server) handleBindStatus(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
+			// Auto-create default channel
+			var aiCfg *database.AIConfig
+			if r.URL.Query().Get("enable_ai") == "true" {
+				aiCfg = &database.AIConfig{Enabled: true, Source: "builtin"}
+			}
+			s.DB.CreateChannel(bot.ID, "默认", "", nil, aiCfg)
+
 			s.BotManager.StartBot(context.Background(), bot)
 
 			j, _ := json.Marshal(map[string]string{"status": "connected", "bot_id": bot.ID})

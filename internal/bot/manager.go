@@ -231,7 +231,6 @@ func (m *Manager) onInbound(inst *Instance, msg provider.InboundMessage) {
 		m.hub.SendTo(ch.ID, env)
 		_ = m.db.UpdateChannelLastSeq(ch.ID, seqID)
 
-		// AI auto-reply (only for text messages)
 		if ch.AIConfig.Enabled && msgType == "text" && content != "" {
 			go m.aiReply(inst, ch, msg.Sender, content)
 		}

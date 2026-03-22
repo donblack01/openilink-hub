@@ -4,7 +4,7 @@ import QRCode from "qrcode";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
-import { Plus, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Trash2, RefreshCw, Bot } from "lucide-react";
 import { api } from "../lib/api";
 
 const statusVariant: Record<string, "default" | "destructive" | "outline"> = {
@@ -17,6 +17,8 @@ export function BotsPage() {
   const [binding, setBinding] = useState(false);
   const [qrUrl, setQrUrl] = useState("");
   const [bindStatus, setBindStatus] = useState("");
+  const [enableAI, setEnableAI] = useState(false);
+  const [hasGlobalAI, setHasGlobalAI] = useState(false);
 
   async function load() {
     const [b, c] = await Promise.all([api.listBots(), api.listChannels()]);
@@ -24,7 +26,7 @@ export function BotsPage() {
     setChannels(c || []);
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api.features().then((f) => setHasGlobalAI(f.ai)).catch(() => {}); }, []);
 
   async function startBind() {
     setBinding(true);
@@ -33,7 +35,7 @@ export function BotsPage() {
       const { session_id, qr_url } = await api.bindStart();
       setQrUrl(qr_url);
       setBindStatus("请用微信扫描二维码");
-      const es = new EventSource(`/api/bots/bind/status/${session_id}`);
+      const es = new EventSource(`/api/bots/bind/status/${session_id}${enableAI ? "?enable_ai=true" : ""}`);
       es.addEventListener("status", (e) => {
         const data = JSON.parse(e.data);
         if (data.status === "scanned") setBindStatus("已扫码，请在微信确认...");
@@ -59,9 +61,18 @@ export function BotsPage() {
           <Button variant="ghost" size="sm" onClick={() => { setBinding(false); setQrUrl(""); }}>取消</Button>
         </Card>
       ) : (
-        <Button onClick={startBind} className="w-full" variant="outline">
-          <Plus className="w-4 h-4 mr-2" /> 绑定新 Bot
-        </Button>
+        <div className="space-y-2">
+          <Button onClick={startBind} className="w-full" variant="outline">
+            <Plus className="w-4 h-4 mr-2" /> 绑定新 Bot
+          </Button>
+          {hasGlobalAI && (
+            <label className="flex items-center gap-2 px-1 cursor-pointer">
+              <input type="checkbox" checked={enableAI} onChange={(e) => setEnableAI(e.target.checked)} className="w-3.5 h-3.5 accent-primary" />
+              <Bot className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">自动开启内置 AI 回复</span>
+            </label>
+          )}
+        </div>
       )}
 
       {bots.map((bot) => (

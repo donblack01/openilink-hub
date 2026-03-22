@@ -22,6 +22,7 @@ export const api = {
   logout: () => request("/api/auth/logout", { method: "POST" }),
   oauthProviders: () => request<{ providers: string[] }>("/api/auth/oauth/providers"),
   me: () => request<{ id: string; username: string; display_name: string; role: string }>("/api/auth/me"),
+  features: () => request<{ ai: boolean }>("/api/features"),
 
   // Bots
   listBots: () => request<any[]>("/api/bots"),
