@@ -19,7 +19,7 @@ func (db *DB) CreateBot(userID, botID, botToken, baseURL, ilinkUserID string) (*
 	id := uuid.New().String()
 	_, err := db.Exec(
 		`INSERT INTO bots (id, user_id, bot_id, bot_token, base_url, ilink_user_id, status)
-		 VALUES (?, ?, ?, ?, ?, ?, 'connected')`,
+		 VALUES ($1, $2, $3, $4, $5, $6, 'connected')`,
 		id, userID, botID, botToken, baseURL, ilinkUserID,
 	)
 	if err != nil {
@@ -28,42 +28,20 @@ func (db *DB) CreateBot(userID, botID, botToken, baseURL, ilinkUserID string) (*
 	return &Bot{ID: id, UserID: userID, BotID: botID, BotToken: botToken, BaseURL: baseURL, ILinkUserID: ilinkUserID, Status: "connected"}, nil
 }
 
-func (db *DB) ListBotsByUser(userID string) ([]Bot, error) {
-	rows, err := db.Query(
-		"SELECT id, user_id, bot_id, bot_token, base_url, ilink_user_id, sync_buf, status, created_at, updated_at FROM bots WHERE user_id = ?",
-		userID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+const botSelectCols = `id, user_id, bot_id, bot_token, base_url, ilink_user_id, sync_buf, status,
+	EXTRACT(EPOCH FROM created_at)::BIGINT, EXTRACT(EPOCH FROM updated_at)::BIGINT`
 
-	var bots []Bot
-	for rows.Next() {
-		var b Bot
-		if err := rows.Scan(&b.ID, &b.UserID, &b.BotID, &b.BotToken, &b.BaseURL, &b.ILinkUserID, &b.SyncBuf, &b.Status, &b.CreatedAt, &b.UpdatedAt); err != nil {
-			return nil, err
-		}
-		bots = append(bots, b)
-	}
-	return bots, rows.Err()
-}
-
-func (db *DB) GetBot(id string) (*Bot, error) {
+func scanBot(scanner interface{ Scan(...any) error }) (*Bot, error) {
 	b := &Bot{}
-	err := db.QueryRow(
-		"SELECT id, user_id, bot_id, bot_token, base_url, ilink_user_id, sync_buf, status, created_at, updated_at FROM bots WHERE id = ?", id,
-	).Scan(&b.ID, &b.UserID, &b.BotID, &b.BotToken, &b.BaseURL, &b.ILinkUserID, &b.SyncBuf, &b.Status, &b.CreatedAt, &b.UpdatedAt)
+	err := scanner.Scan(&b.ID, &b.UserID, &b.BotID, &b.BotToken, &b.BaseURL, &b.ILinkUserID, &b.SyncBuf, &b.Status, &b.CreatedAt, &b.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-func (db *DB) GetAllBots() ([]Bot, error) {
-	rows, err := db.Query(
-		"SELECT id, user_id, bot_id, bot_token, base_url, ilink_user_id, sync_buf, status, created_at, updated_at FROM bots",
-	)
+func (db *DB) ListBotsByUser(userID string) ([]Bot, error) {
+	rows, err := db.Query("SELECT "+botSelectCols+" FROM bots WHERE user_id = $1", userID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,26 +49,48 @@ func (db *DB) GetAllBots() ([]Bot, error) {
 
 	var bots []Bot
 	for rows.Next() {
-		var b Bot
-		if err := rows.Scan(&b.ID, &b.UserID, &b.BotID, &b.BotToken, &b.BaseURL, &b.ILinkUserID, &b.SyncBuf, &b.Status, &b.CreatedAt, &b.UpdatedAt); err != nil {
+		b, err := scanBot(rows)
+		if err != nil {
 			return nil, err
 		}
-		bots = append(bots, b)
+		bots = append(bots, *b)
+	}
+	return bots, rows.Err()
+}
+
+func (db *DB) GetBot(id string) (*Bot, error) {
+	return scanBot(db.QueryRow("SELECT "+botSelectCols+" FROM bots WHERE id = $1", id))
+}
+
+func (db *DB) GetAllBots() ([]Bot, error) {
+	rows, err := db.Query("SELECT " + botSelectCols + " FROM bots")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var bots []Bot
+	for rows.Next() {
+		b, err := scanBot(rows)
+		if err != nil {
+			return nil, err
+		}
+		bots = append(bots, *b)
 	}
 	return bots, rows.Err()
 }
 
 func (db *DB) UpdateBotStatus(id, status string) error {
-	_, err := db.Exec("UPDATE bots SET status = ?, updated_at = unixepoch() WHERE id = ?", status, id)
+	_, err := db.Exec("UPDATE bots SET status = $1, updated_at = NOW() WHERE id = $2", status, id)
 	return err
 }
 
 func (db *DB) UpdateBotSyncBuf(id, syncBuf string) error {
-	_, err := db.Exec("UPDATE bots SET sync_buf = ?, updated_at = unixepoch() WHERE id = ?", syncBuf, id)
+	_, err := db.Exec("UPDATE bots SET sync_buf = $1, updated_at = NOW() WHERE id = $2", syncBuf, id)
 	return err
 }
 
 func (db *DB) DeleteBot(id string) error {
-	_, err := db.Exec("DELETE FROM bots WHERE id = ?", id)
+	_, err := db.Exec("DELETE FROM bots WHERE id = $1", id)
 	return err
 }

@@ -13,23 +13,36 @@ type Message struct {
 
 func (db *DB) SaveMessage(botDBID, direction, ilinkUserID string, msgType int, content string, sublevelID *string) error {
 	_, err := db.Exec(
-		"INSERT INTO messages (bot_db_id, direction, ilink_user_id, message_type, content, sublevel_id) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO messages (bot_db_id, direction, ilink_user_id, message_type, content, sublevel_id) VALUES ($1, $2, $3, $4, $5, $6)",
 		botDBID, direction, ilinkUserID, msgType, content, sublevelID,
 	)
 	return err
 }
 
 func (db *DB) ListMessages(botDBID string, limit int, beforeID int64) ([]Message, error) {
-	query := "SELECT id, bot_db_id, direction, ilink_user_id, message_type, content, sublevel_id, created_at FROM messages WHERE bot_db_id = ?"
-	args := []any{botDBID}
-	if beforeID > 0 {
-		query += " AND id < ?"
-		args = append(args, beforeID)
+	var rows interface {
+		Close() error
+		Next() bool
+		Scan(...any) error
+		Err() error
 	}
-	query += " ORDER BY id DESC LIMIT ?"
-	args = append(args, limit)
+	var err error
 
-	rows, err := db.Query(query, args...)
+	if beforeID > 0 {
+		rows, err = db.Query(
+			`SELECT id, bot_db_id, direction, ilink_user_id, message_type, content, sublevel_id,
+			        EXTRACT(EPOCH FROM created_at)::BIGINT
+			 FROM messages WHERE bot_db_id = $1 AND id < $2 ORDER BY id DESC LIMIT $3`,
+			botDBID, beforeID, limit,
+		)
+	} else {
+		rows, err = db.Query(
+			`SELECT id, bot_db_id, direction, ilink_user_id, message_type, content, sublevel_id,
+			        EXTRACT(EPOCH FROM created_at)::BIGINT
+			 FROM messages WHERE bot_db_id = $1 ORDER BY id DESC LIMIT $2`,
+			botDBID, limit,
+		)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -18,8 +18,8 @@ func generateToken() string {
 
 func CreateSession(db *database.DB, userID string) (string, error) {
 	token := generateToken()
-	expiresAt := time.Now().Add(sessionTTL).Unix()
-	_, err := db.Exec("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)", token, userID, expiresAt)
+	expiresAt := time.Now().Add(sessionTTL)
+	_, err := db.Exec("INSERT INTO sessions (token, user_id, expires_at) VALUES ($1, $2, $3)", token, userID, expiresAt)
 	if err != nil {
 		return "", err
 	}
@@ -28,22 +28,22 @@ func CreateSession(db *database.DB, userID string) (string, error) {
 
 func ValidateSession(db *database.DB, token string) (string, error) {
 	var userID string
-	var expiresAt int64
-	err := db.QueryRow("SELECT user_id, expires_at FROM sessions WHERE token = ?", token).Scan(&userID, &expiresAt)
+	var expiresAt time.Time
+	err := db.QueryRow("SELECT user_id, expires_at FROM sessions WHERE token = $1", token).Scan(&userID, &expiresAt)
 	if err != nil {
 		return "", err
 	}
-	if time.Now().Unix() > expiresAt {
-		db.Exec("DELETE FROM sessions WHERE token = ?", token)
+	if time.Now().After(expiresAt) {
+		db.Exec("DELETE FROM sessions WHERE token = $1", token)
 		return "", err
 	}
 	return userID, nil
 }
 
 func DeleteSession(db *database.DB, token string) {
-	db.Exec("DELETE FROM sessions WHERE token = ?", token)
+	db.Exec("DELETE FROM sessions WHERE token = $1", token)
 }
 
 func CleanExpiredSessions(db *database.DB) {
-	db.Exec("DELETE FROM sessions WHERE expires_at < ?", time.Now().Unix())
+	db.Exec("DELETE FROM sessions WHERE expires_at < NOW()")
 }

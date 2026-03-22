@@ -12,7 +12,7 @@ type Credential struct {
 
 func (db *DB) SaveCredential(c *Credential) error {
 	_, err := db.Exec(
-		"INSERT INTO credentials (id, user_id, public_key, attestation_type, transport, sign_count) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO credentials (id, user_id, public_key, attestation_type, transport, sign_count) VALUES ($1, $2, $3, $4, $5, $6)",
 		c.ID, c.UserID, c.PublicKey, c.AttestationType, c.Transport, c.SignCount,
 	)
 	return err
@@ -20,7 +20,7 @@ func (db *DB) SaveCredential(c *Credential) error {
 
 func (db *DB) GetCredentialsByUserID(userID string) ([]Credential, error) {
 	rows, err := db.Query(
-		"SELECT id, user_id, public_key, attestation_type, transport, sign_count, created_at FROM credentials WHERE user_id = ?",
+		"SELECT id, user_id, public_key, attestation_type, transport, sign_count, EXTRACT(EPOCH FROM created_at)::BIGINT FROM credentials WHERE user_id = $1",
 		userID,
 	)
 	if err != nil {
@@ -40,6 +40,6 @@ func (db *DB) GetCredentialsByUserID(userID string) ([]Credential, error) {
 }
 
 func (db *DB) UpdateCredentialSignCount(id string, signCount uint32) error {
-	_, err := db.Exec("UPDATE credentials SET sign_count = ? WHERE id = ?", signCount, id)
+	_, err := db.Exec("UPDATE credentials SET sign_count = $1 WHERE id = $2", signCount, id)
 	return err
 }
