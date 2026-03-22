@@ -339,7 +339,6 @@ function LivePanel({ wsUrl, onClose }: { wsUrl: string; onClose: () => void }) {
   const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
   const [logs, setLogs] = useState<WsLogEntry[]>([]);
   const [input, setInput] = useState("");
-  const [recipient, setRecipient] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
   const seqRef = useRef(0);
@@ -410,7 +409,7 @@ function LivePanel({ wsUrl, onClose }: { wsUrl: string; onClose: () => void }) {
     const msg = {
       type: "send_text",
       req_id: reqId,
-      data: { recipient, text: input },
+      data: { text: input },
     };
     wsRef.current.send(JSON.stringify(msg));
     addLog("out", "send_text", msg.data);
@@ -438,37 +437,16 @@ function LivePanel({ wsUrl, onClose }: { wsUrl: string; onClose: () => void }) {
       </div>
 
       {/* Log */}
-      <div className="h-48 overflow-y-auto font-mono text-[11px] p-2 space-y-0.5">
-        {logs.map((log) => (
-          <div key={log.id} className="flex gap-2">
-            <span className="text-muted-foreground shrink-0 w-16">{log.time}</span>
-            <span className={`shrink-0 w-6 ${
-              log.dir === "in" ? "text-green-500" : log.dir === "out" ? "text-blue-500" : "text-muted-foreground"
-            }`}>
-              {log.dir === "in" ? "◀" : log.dir === "out" ? "▶" : "●"}
-            </span>
-            <span className="text-primary shrink-0">{log.type}</span>
-            {log.data != null && (
-              <span className="text-muted-foreground truncate">
-                {typeof log.data === "string" ? log.data : JSON.stringify(log.data)}
-              </span>
-            )}
-          </div>
-        ))}
+      <div className="h-64 overflow-y-auto text-[11px] p-2 space-y-1">
+        {logs.map((log) => <LogEntry key={log.id} log={log} />)}
         {logs.length === 0 && (
-          <p className="text-muted-foreground text-center py-4">等待消息...</p>
+          <p className="text-muted-foreground text-center py-8">等待消息...</p>
         )}
         <div ref={logEndRef} />
       </div>
 
       {/* Send */}
       <form onSubmit={handleSend} className="flex gap-1.5 p-2 border-t">
-        <Input
-          value={recipient}
-          onChange={(e) => setRecipient(e.target.value)}
-          placeholder="接收人"
-          className="h-7 text-[11px] w-28 font-mono"
-        />
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -479,6 +457,80 @@ function LivePanel({ wsUrl, onClose }: { wsUrl: string; onClose: () => void }) {
           <Send className="w-3 h-3" />
         </Button>
       </form>
+    </div>
+  );
+}
+
+function LogEntry({ log }: { log: WsLogEntry }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (log.dir === "sys") {
+    return (
+      <div className="text-muted-foreground text-center text-[10px] py-0.5">
+        — {log.type} {log.time} —
+      </div>
+    );
+  }
+
+  const isIn = log.dir === "in";
+  const dirColor = isIn ? "text-green-500" : "text-blue-500";
+  const dirIcon = isIn ? "◀" : "▶";
+
+  // Format summary based on message type
+  let summary = "";
+  const d = log.data;
+  if (d) {
+    switch (log.type) {
+      case "message": {
+        const sender = d.sender || "";
+        const items = d.items || [];
+        const texts = items.map((it: any) => {
+          if (it.type === "text") return it.text;
+          if (it.type === "voice" && it.text) return `[语音] ${it.text}`;
+          if (it.type === "file") return `[文件] ${it.file_name || ""}`;
+          return `[${it.type}]`;
+        }).join(" ");
+        summary = sender ? `${sender}: ${texts}` : texts;
+        break;
+      }
+      case "init":
+        summary = `channel=${d.channel_name || d.channel_id} bot_status=${d.bot_status}`;
+        break;
+      case "bot_status":
+        summary = d.status || "";
+        break;
+      case "send_ack":
+        summary = d.success ? "ok" : `err: ${d.error}`;
+        break;
+      case "send_text":
+        summary = d.text || "";
+        break;
+      case "pong":
+        summary = "";
+        break;
+      default:
+        summary = typeof d === "string" ? d : JSON.stringify(d);
+    }
+  }
+
+  const hasDetail = d != null && log.type !== "pong";
+
+  return (
+    <div className="group">
+      <div
+        className={`flex items-start gap-1.5 ${hasDetail ? "cursor-pointer" : ""} hover:bg-secondary/30 rounded px-1 -mx-1`}
+        onClick={() => hasDetail && setExpanded(!expanded)}
+      >
+        <span className="text-muted-foreground shrink-0 w-14 text-[10px] pt-px">{log.time}</span>
+        <span className={`shrink-0 ${dirColor}`}>{dirIcon}</span>
+        <span className="text-primary shrink-0 font-medium">{log.type}</span>
+        <span className="text-foreground truncate">{summary}</span>
+      </div>
+      {expanded && d != null && (
+        <pre className="ml-[70px] text-[10px] text-muted-foreground bg-secondary/30 rounded p-2 mt-0.5 mb-1 overflow-x-auto whitespace-pre-wrap break-all">
+          {JSON.stringify(d, null, 2)}
+        </pre>
+      )}
     </div>
   );
 }
