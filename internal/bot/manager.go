@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 
 	ilink "github.com/openilink/openilink-sdk-go"
@@ -13,7 +14,7 @@ import (
 // Manager manages all active bot instances.
 type Manager struct {
 	mu        sync.RWMutex
-	instances map[string]*Instance // keyed by bot DB ID
+	instances map[string]*Instance
 	db        *database.DB
 	hub       *relay.Hub
 }
@@ -26,7 +27,6 @@ func NewManager(db *database.DB, hub *relay.Hub) *Manager {
 	}
 }
 
-// StartAll loads all bots from DB and starts monitoring.
 func (m *Manager) StartAll(ctx context.Context) {
 	bots, err := m.db.GetAllBots()
 	if err != nil {
@@ -47,14 +47,11 @@ func (m *Manager) StartAll(ctx context.Context) {
 func (m *Manager) StartBot(ctx context.Context, bot *database.Bot) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	// Stop existing instance if any
 	if old, ok := m.instances[bot.ID]; ok {
 		old.Stop()
 	}
-
 	inst := NewInstance(bot)
-	inst.Start(ctx, m.db, m.onInbound)
+	inst.Start(ctx, m.db, m.onInbound, m.onStatusChange)
 	m.instances[bot.ID] = inst
 	slog.Info("bot started", "bot", bot.ID, "ilink_bot_id", bot.BotID)
 	return nil
@@ -63,7 +60,6 @@ func (m *Manager) StartBot(ctx context.Context, bot *database.Bot) error {
 func (m *Manager) StopBot(botDBID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	if inst, ok := m.instances[botDBID]; ok {
 		inst.Stop()
 		delete(m.instances, botDBID)
@@ -86,11 +82,21 @@ func (m *Manager) StopAll() {
 	m.instances = make(map[string]*Instance)
 }
 
-// onInbound routes an inbound message to all matching sub-level WebSocket clients.
+// onStatusChange broadcasts bot status to all sublevels.
+func (m *Manager) onStatusChange(inst *Instance, status string) {
+	env := relay.NewEnvelope("bot_status", relay.BotStatusData{
+		BotID:  inst.DBID,
+		Status: status,
+	})
+	m.hub.Broadcast(inst.DBID, env)
+}
+
+// onInbound routes an inbound message with filtering.
 func (m *Manager) onInbound(inst *Instance, msg ilink.WeixinMessage) {
 	text := ilink.ExtractText(&msg)
+	fromUser := msg.FromUserID
 
-	// Log to DB
+	// Determine message type and content for storage
 	content := text
 	msgType := 1
 	for _, item := range msg.ItemList {
@@ -119,7 +125,17 @@ func (m *Manager) onInbound(inst *Instance, msg ilink.WeixinMessage) {
 			}
 		}
 	}
-	_ = m.db.SaveMessage(inst.DBID, "inbound", msg.FromUserID, msgType, content, nil)
+
+	// Save to DB and get sequence ID
+	dbMsg := &database.Message{
+		BotDBID:     inst.DBID,
+		Direction:   "inbound",
+		FromUserID:  fromUser,
+		MessageType: msgType,
+		Content:     content,
+	}
+	seqID, _ := m.db.SaveMessage(dbMsg)
+	_ = m.db.IncrBotMsgCount(inst.DBID)
 
 	// Build relay envelope
 	var items []relay.MessageItem
@@ -149,13 +165,75 @@ func (m *Manager) onInbound(inst *Instance, msg ilink.WeixinMessage) {
 	}
 
 	env := relay.NewEnvelope("message", relay.MessageData{
+		SeqID:        seqID,
 		MessageID:    msg.MessageID,
-		FromUserID:   msg.FromUserID,
+		FromUserID:   fromUser,
 		Timestamp:    msg.CreateTimeMs,
 		Items:        items,
 		ContextToken: msg.ContextToken,
 		SessionID:    msg.SessionID,
 	})
 
-	m.hub.Broadcast(inst.DBID, env)
+	// Load sublevels and filter
+	subs, err := m.db.ListSublevelsByBot(inst.DBID)
+	if err != nil {
+		slog.Error("load sublevels failed", "bot", inst.DBID, "err", err)
+		return
+	}
+
+	for _, sub := range subs {
+		if !matchFilter(sub.FilterRule, fromUser, text, msgType) {
+			continue
+		}
+		m.hub.SendTo(sub.ID, env)
+		_ = m.db.UpdateSublevelLastSeq(sub.ID, seqID)
+	}
+}
+
+// matchFilter checks if a message passes the sublevel's filter rule.
+func matchFilter(rule database.FilterRule, fromUser, text string, msgType int) bool {
+	// User filter
+	if len(rule.UserIDs) > 0 {
+		found := false
+		for _, uid := range rule.UserIDs {
+			if uid == fromUser {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	// Message type filter
+	if len(rule.MessageTypes) > 0 {
+		found := false
+		for _, mt := range rule.MessageTypes {
+			if mt == msgType {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	// Keyword filter (any keyword match in text)
+	if len(rule.Keywords) > 0 {
+		found := false
+		lower := strings.ToLower(text)
+		for _, kw := range rule.Keywords {
+			if strings.Contains(lower, strings.ToLower(kw)) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }

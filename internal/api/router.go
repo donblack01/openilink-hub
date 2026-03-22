@@ -51,8 +51,14 @@ func (s *Server) Handler() http.Handler {
 	// Sub-levels
 	protected.HandleFunc("GET /api/sublevels", s.handleListSublevels)
 	protected.HandleFunc("POST /api/sublevels", s.handleCreateSublevel)
+	protected.HandleFunc("PUT /api/sublevels/{id}", s.handleUpdateSublevel)
 	protected.HandleFunc("DELETE /api/sublevels/{id}", s.handleDeleteSublevel)
 	protected.HandleFunc("POST /api/sublevels/{id}/rotate-key", s.handleRotateKey)
+
+	// Bot stats & contacts
+	protected.HandleFunc("GET /api/stats", s.handleStats)
+	protected.HandleFunc("GET /api/bots/{id}/contacts", s.handleBotContacts)
+	protected.HandleFunc("PUT /api/bots/{id}/name", s.handleUpdateBotName)
 
 	// Messages
 	protected.HandleFunc("GET /api/messages", s.handleListMessages)

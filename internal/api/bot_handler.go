@@ -158,7 +158,7 @@ func (s *Server) handleBindStatus(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Save to DB
-			bot, err := s.DB.CreateBot(bs.userID, status.ILinkBotID, status.BotToken, status.BaseURL, status.ILinkUserID)
+			bot, err := s.DB.CreateBot(bs.userID, "", status.ILinkBotID, status.BotToken, status.BaseURL, status.ILinkUserID)
 			if err != nil {
 				slog.Error("save bot failed", "err", err)
 				sendEvent("error", `{"message":"save failed"}`)
@@ -208,6 +208,61 @@ func (s *Server) handleDeleteBot(w http.ResponseWriter, r *http.Request) {
 	s.BotManager.StopBot(botID)
 	s.DB.DeleteBot(botID)
 
+	jsonOK(w)
+}
+
+func (s *Server) handleUpdateBotName(w http.ResponseWriter, r *http.Request) {
+	botID := r.PathValue("id")
+	userID := auth.UserIDFromContext(r.Context())
+
+	bot, err := s.DB.GetBot(botID)
+	if err != nil || bot.UserID != userID {
+		jsonError(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		jsonError(w, "name required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.DB.UpdateBotName(botID, req.Name); err != nil {
+		jsonError(w, "update failed", http.StatusInternalServerError)
+		return
+	}
+	jsonOK(w)
+}
+
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	userID := auth.UserIDFromContext(r.Context())
+	stats, err := s.DB.GetBotStats(userID)
+	if err != nil {
+		jsonError(w, "stats failed", http.StatusInternalServerError)
+		return
+	}
+	stats.ConnectedWS = s.Hub.ConnectedCount()
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"ok":true}`))
+	json.NewEncoder(w).Encode(stats)
+}
+
+func (s *Server) handleBotContacts(w http.ResponseWriter, r *http.Request) {
+	botID := r.PathValue("id")
+	userID := auth.UserIDFromContext(r.Context())
+
+	bot, err := s.DB.GetBot(botID)
+	if err != nil || bot.UserID != userID {
+		jsonError(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	contacts, err := s.DB.ListRecentContacts(botID, 100)
+	if err != nil {
+		jsonError(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(contacts)
 }

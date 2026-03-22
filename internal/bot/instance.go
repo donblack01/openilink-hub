@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 
 	ilink "github.com/openilink/openilink-sdk-go"
@@ -15,7 +16,8 @@ type Instance struct {
 	BotID  string // ilink_bot_id
 	Client *ilink.Client
 	cancel context.CancelFunc
-	status atomic.Value // string: "connected", "disconnected", "error"
+	status atomic.Value // string
+	mu     sync.Mutex   // protects Client.Push/SendText
 }
 
 func NewInstance(bot *database.Bot) *Instance {
@@ -34,22 +36,25 @@ func NewInstance(bot *database.Bot) *Instance {
 	return inst
 }
 
-func (i *Instance) Status() string {
-	return i.status.Load().(string)
+func (i *Instance) Status() string  { return i.status.Load().(string) }
+func (i *Instance) SetStatus(s string) { i.status.Store(s) }
+
+// SendText sends a message with mutex protection for concurrent sublevel pushes.
+func (i *Instance) SendText(ctx context.Context, to, text string) (string, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.Client.Push(ctx, to, text)
 }
 
-func (i *Instance) SetStatus(s string) {
-	i.status.Store(s)
-}
-
-// Start begins the Monitor loop in a goroutine. The onMessage callback
-// is invoked for each inbound message.
-func (i *Instance) Start(ctx context.Context, db *database.DB, onMessage func(inst *Instance, msg ilink.WeixinMessage)) {
+// Start begins the Monitor loop in a goroutine.
+func (i *Instance) Start(ctx context.Context, db *database.DB, onMessage func(inst *Instance, msg ilink.WeixinMessage), onStatusChange func(inst *Instance, status string)) {
 	ctx, i.cancel = context.WithCancel(ctx)
 	i.SetStatus("connected")
 	_ = db.UpdateBotStatus(i.DBID, "connected")
+	if onStatusChange != nil {
+		onStatusChange(i, "connected")
+	}
 
-	// Load saved sync buf
 	bot, _ := db.GetBot(i.DBID)
 	initialBuf := ""
 	if bot != nil {
@@ -71,15 +76,22 @@ func (i *Instance) Start(ctx context.Context, db *database.DB, onMessage func(in
 				slog.Error("bot session expired", "bot", i.DBID)
 				i.SetStatus("session_expired")
 				_ = db.UpdateBotStatus(i.DBID, "session_expired")
+				if onStatusChange != nil {
+					onStatusChange(i, "session_expired")
+				}
 			},
 		})
+		var newStatus string
 		if err != nil && err != context.Canceled {
 			slog.Error("bot monitor stopped", "bot", i.DBID, "err", err)
-			i.SetStatus("error")
-			_ = db.UpdateBotStatus(i.DBID, "error")
+			newStatus = "error"
 		} else {
-			i.SetStatus("disconnected")
-			_ = db.UpdateBotStatus(i.DBID, "disconnected")
+			newStatus = "disconnected"
+		}
+		i.SetStatus(newStatus)
+		_ = db.UpdateBotStatus(i.DBID, newStatus)
+		if onStatusChange != nil {
+			onStatusChange(i, newStatus)
 		}
 	}()
 }

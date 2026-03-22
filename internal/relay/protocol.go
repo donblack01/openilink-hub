@@ -12,12 +12,20 @@ type Envelope struct {
 // --- Server → Client ---
 
 type MessageData struct {
-	MessageID  int64          `json:"message_id"`
-	FromUserID string         `json:"from_user_id"`
-	Timestamp  int64          `json:"timestamp"`
-	Items      []MessageItem  `json:"items"`
-	ContextToken string       `json:"context_token,omitempty"`
-	SessionID  string         `json:"session_id,omitempty"`
+	SeqID        int64         `json:"seq_id"`
+	MessageID    int64         `json:"message_id"`
+	FromUserID   string        `json:"from_user_id"`
+	Timestamp    int64         `json:"timestamp"`
+	Items        []MessageItem `json:"items"`
+	ContextToken string        `json:"context_token,omitempty"`
+	SessionID    string        `json:"session_id,omitempty"`
+}
+
+type InitData struct {
+	SublevelID   string `json:"sublevel_id"`
+	SublevelName string `json:"sublevel_name"`
+	BotDBID      string `json:"bot_db_id"`
+	BotStatus    string `json:"bot_status"`
 }
 
 type MessageItem struct {
