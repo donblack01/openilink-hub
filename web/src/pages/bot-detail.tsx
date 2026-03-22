@@ -527,7 +527,10 @@ function WebhookPanel({ botId, channelId, config, onSaved }: {
   botId: string; channelId: string; config: any; onSaved: () => void;
 }) {
   const [url, setUrl] = useState(config?.url || "");
-  const [auth, setAuth] = useState(config?.auth || "");
+  const [authType, setAuthType] = useState(config?.auth?.type || "");
+  const [authToken, setAuthToken] = useState(config?.auth?.token || "");
+  const [authName, setAuthName] = useState(config?.auth?.name || "");
+  const [authValue, setAuthValue] = useState(config?.auth?.value || config?.auth?.secret || "");
   const [script, setScript] = useState(config?.script || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -536,8 +539,12 @@ function WebhookPanel({ botId, channelId, config, onSaved }: {
     setSaving(true);
     setError("");
     try {
+      let auth: any = null;
+      if (authType === "bearer" && authToken) auth = { type: "bearer", token: authToken };
+      else if (authType === "header" && authName) auth = { type: "header", name: authName, value: authValue };
+      else if (authType === "hmac" && authValue) auth = { type: "hmac", secret: authValue };
       await api.updateChannel(botId, channelId, {
-        webhook_config: { url, auth, script },
+        webhook_config: { url, auth, script: script || undefined },
       });
       onSaved();
     } catch (err: any) { setError(err.message); }
@@ -551,17 +558,39 @@ function WebhookPanel({ botId, channelId, config, onSaved }: {
       </span>
       <div className="space-y-2">
         <Input placeholder="https://your-server.com/webhook" value={url} onChange={(e) => setUrl(e.target.value)} className="h-7 text-[11px] font-mono" />
-        <Input placeholder="认证: bearer:token / header:K:V / hmac:secret" value={auth} onChange={(e) => setAuth(e.target.value)} className="h-7 text-[11px] font-mono" />
+
+        {/* Auth */}
+        <div className="flex gap-1">
+          {["", "bearer", "header", "hmac"].map((t) => (
+            <button key={t} onClick={() => setAuthType(t)} className={`px-2 py-0.5 text-[10px] rounded cursor-pointer transition-colors ${authType === t ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}>
+              {t || "无认证"}
+            </button>
+          ))}
+        </div>
+        {authType === "bearer" && (
+          <Input placeholder="Token" value={authToken} onChange={(e) => setAuthToken(e.target.value)} className="h-7 text-[11px] font-mono" />
+        )}
+        {authType === "header" && (
+          <div className="flex gap-2">
+            <Input placeholder="Header 名" value={authName} onChange={(e) => setAuthName(e.target.value)} className="h-7 text-[11px] font-mono" />
+            <Input placeholder="Header 值" value={authValue} onChange={(e) => setAuthValue(e.target.value)} className="h-7 text-[11px] font-mono" />
+          </div>
+        )}
+        {authType === "hmac" && (
+          <Input placeholder="HMAC Secret" value={authValue} onChange={(e) => setAuthValue(e.target.value)} className="h-7 text-[11px] font-mono" />
+        )}
+
+        {/* Script */}
         <textarea
-          placeholder={`JS 脚本（可选）转换 payload，示例：\n// Slack\n({body: JSON.stringify({text: msg.sender + ": " + msg.content})})\n// 跳过非文本\nif (msg.msg_type !== "text") null; else ({body: JSON.stringify(msg)})`}
+          placeholder={`JS 中间件（可选）\n\nfunction onRequest(ctx) {\n  ctx.req.body = JSON.stringify({text: ctx.msg.content});\n}\n\nfunction onResponse(ctx) {\n  var data = JSON.parse(ctx.res.body);\n  if (data.reply) reply(data.reply);\n}`}
           value={script}
           onChange={(e) => setScript(e.target.value)}
-          rows={4}
+          rows={5}
           className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-[11px] font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring resize-none"
         />
       </div>
       <div className="flex items-center justify-between">
-        <p className="text-[10px] text-muted-foreground">收到消息时 POST 到此 URL。留空 URL 关闭。</p>
+        <p className="text-[10px] text-muted-foreground">收到消息时 POST 到此 URL。响应 {"{"}"reply":"..."{"}"}  自动回复用户。</p>
         <div className="flex items-center gap-2">
           {error && <span className="text-[10px] text-destructive">{error}</span>}
           <Button size="sm" className="h-7" onClick={handleSave} disabled={saving}>{saving ? "..." : "保存"}</Button>

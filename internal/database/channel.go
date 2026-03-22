@@ -28,9 +28,18 @@ type AIConfig struct {
 
 // WebhookConfig holds webhook push configuration for a channel.
 type WebhookConfig struct {
-	URL    string `json:"url,omitempty"`
-	Auth   string `json:"auth,omitempty"`   // "bearer:<token>", "header:K:V", "hmac:<secret>"
-	Script string `json:"script,omitempty"` // JS script to transform payload
+	URL    string       `json:"url,omitempty"`
+	Auth   *WebhookAuth `json:"auth,omitempty"`
+	Script string       `json:"script,omitempty"` // JS middleware: receives (msg, req), returns req or null
+}
+
+// WebhookAuth defines structured auth for webhooks.
+type WebhookAuth struct {
+	Type   string `json:"type"`             // "bearer", "header", "hmac"
+	Token  string `json:"token,omitempty"`  // for bearer
+	Name   string `json:"name,omitempty"`   // for header
+	Value  string `json:"value,omitempty"`  // for header
+	Secret string `json:"secret,omitempty"` // for hmac
 }
 
 type Channel struct {

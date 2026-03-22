@@ -2,22 +2,43 @@ package sink
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/dop251/goja"
+	"github.com/openilink/openilink-hub/internal/database"
 	"github.com/openilink/openilink-hub/internal/provider"
 )
 
 // Webhook pushes messages to a configured HTTP endpoint.
-// If webhook_script is set, runs the JS script to transform the request.
-type Webhook struct{}
+//
+// Script API (two-phase middleware):
+//
+//	// ctx.msg  — inbound message (read-only)
+//	// ctx.req  — {url, method, headers, body} (modify before send)
+//	// ctx.res  — {status, headers, body} (available in onResponse)
+//	// ctx.reply(text) — send reply back to user via bot
+//	// ctx.skip()      — cancel this webhook delivery
+//	//
+//	// Export two optional functions:
+//	function onRequest(ctx) {
+//	    ctx.req.headers["X-Custom"] = "value";
+//	    ctx.req.body = JSON.stringify({text: ctx.msg.content});
+//	}
+//	function onResponse(ctx) {
+//	    var data = JSON.parse(ctx.res.body);
+//	    if (data.answer) ctx.reply(data.answer);
+//	}
+type Webhook struct {
+	DB *database.DB
+}
 
 func (s *Webhook) Name() string { return "webhook" }
 
@@ -27,154 +48,153 @@ func (s *Webhook) Handle(d Delivery) {
 		return
 	}
 
-	msg := webhookPayload{
-		Event:     "message",
-		ChannelID: d.Channel.ID,
-		BotID:     d.BotDBID,
-		SeqID:     d.SeqID,
-		Sender:    d.Message.Sender,
-		MsgType:   d.MsgType,
-		Content:   d.Content,
-		Timestamp: d.Message.Timestamp,
-		Items:     d.Message.Items,
+	msg := buildPayload(d)
+	body, _ := json.Marshal(msg)
+	req := &reqData{
+		URL:     cfg.URL,
+		Method:  "POST",
+		Headers: map[string]string{"Content-Type": "application/json"},
+		Body:    string(body),
 	}
+	applyAuth(req, cfg.Auth, body)
+
+	var res *resData
+	var replies []string
+	skipped := false
 
 	if cfg.Script != "" {
-		s.handleWithScript(d, msg)
-	} else {
-		s.handleDefault(d, msg)
+		var err error
+		req, res, replies, skipped, err = s.runScript(cfg.Script, msg, req, d.Channel.ID)
+		if err != nil {
+			slog.Error("webhook script error", "channel", d.Channel.ID, "err", err)
+			return
+		}
+		if skipped || req == nil {
+			return
+		}
 	}
+
+	// Send HTTP request (if script didn't already trigger it via onResponse)
+	if res == nil {
+		res = doHTTP(req, d.Channel.ID)
+	}
+
+	// Auto-reply from response {"reply": "..."}
+	if res != nil && len(replies) == 0 {
+		var body struct{ Reply string }
+		if json.Unmarshal([]byte(res.Body), &body) == nil && body.Reply != "" {
+			replies = append(replies, body.Reply)
+		}
+	}
+
+	s.sendReplies(d, replies)
 }
 
-// handleDefault sends the standard webhook payload.
-func (s *Webhook) handleDefault(d Delivery, msg webhookPayload) {
-	cfg := d.Channel.WebhookConfig
-	body, _ := json.Marshal(msg)
-	req, err := http.NewRequest("POST", cfg.URL, bytes.NewReader(body))
-	if err != nil {
-		slog.Error("webhook build failed", "channel", d.Channel.ID, "err", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Hub-Event", "message")
-	req.Header.Set("X-Hub-Channel", d.Channel.ID)
-	applyWebhookAuth(req, cfg.Auth, body)
-	doWebhook(req, d.Channel.ID)
-}
-
-// handleWithScript runs the user's JS script to build the request.
-//
-// Script API:
-//
-//	// `msg` is the message object with fields:
-//	//   event, channel_id, bot_id, seq_id, sender, msg_type, content, timestamp, items
-//	//
-//	// Return an object to send:
-//	//   { url?, headers?, body }
-//	// Return null/undefined to skip.
-//	//
-//	// Examples:
-//	//   Slack:    ({body: JSON.stringify({text: msg.sender + ": " + msg.content})})
-//	//   Custom:   ({url: "https://x.com/api", headers: {"X-Token": "abc"}, body: JSON.stringify(msg)})
-//	//   Filter:   if (msg.msg_type !== "text") null; else ({body: JSON.stringify({text: msg.content})})
-func (s *Webhook) handleWithScript(d Delivery, msg webhookPayload) {
-	cfg := d.Channel.WebhookConfig
+func (s *Webhook) runScript(script string, msg webhookPayload, req *reqData, channelID string) (
+	outReq *reqData, outRes *resData, replies []string, skipped bool, err error,
+) {
 	vm := goja.New()
 	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
 
-	vm.Set("msg", msg)
+	// Build ctx
+	ctx := map[string]any{
+		"msg": msg,
+		"req": map[string]any{
+			"url":     req.URL,
+			"method":  req.Method,
+			"headers": req.Headers,
+			"body":    req.Body,
+		},
+	}
+	vm.Set("ctx", ctx)
+	vm.Set("reply", func(text string) { replies = append(replies, text) })
+	vm.Set("skip", func() { skipped = true })
 
-	result, err := vm.RunString(cfg.Script)
+	// Define onRequest/onResponse as top-level functions
+	_, err = vm.RunString(script)
 	if err != nil {
-		slog.Error("webhook script error", "channel", d.Channel.ID, "err", err)
-		return
+		return nil, nil, nil, false, err
 	}
 
-	// null/undefined = skip
-	if result == nil || goja.IsNull(result) || goja.IsUndefined(result) {
-		return
-	}
-
-	// Extract result object
-	obj := result.Export()
-	m, ok := obj.(map[string]any)
-	if !ok {
-		slog.Error("webhook script must return object or null", "channel", d.Channel.ID)
-		return
-	}
-
-	url := cfg.URL
-	if u, ok := m["url"].(string); ok && u != "" {
-		url = u
-	}
-
-	// Body
-	bodyStr, _ := m["body"].(string)
-	if bodyStr == "" {
-		// Default to JSON of msg
-		b, _ := json.Marshal(msg)
-		bodyStr = string(b)
-	}
-
-	req, err := http.NewRequest("POST", url, strings.NewReader(bodyStr))
-	if err != nil {
-		slog.Error("webhook build failed", "channel", d.Channel.ID, "err", err)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	// Script headers
-	if headers, ok := m["headers"].(map[string]any); ok {
-		for k, v := range headers {
-			if vs, ok := v.(string); ok {
-				req.Header.Set(k, vs)
+	// Phase 1: onRequest
+	if fn := vm.Get("onRequest"); fn != nil && !goja.IsUndefined(fn) {
+		if callable, ok := goja.AssertFunction(fn); ok {
+			if _, err := callable(goja.Undefined(), vm.Get("ctx")); err != nil {
+				return nil, nil, nil, false, err
 			}
 		}
 	}
 
-	if cfg.Auth != "" && req.Header.Get("Authorization") == "" {
-		applyWebhookAuth(req, cfg.Auth, []byte(bodyStr))
+	if skipped {
+		return nil, nil, replies, true, nil
 	}
 
-	doWebhook(req, d.Channel.ID)
-}
+	// Extract modified req from ctx
+	outReq = extractReqFromCtx(vm.Get("ctx").Export(), req)
 
-func doWebhook(req *http.Request, channelID string) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		slog.Error("webhook delivery failed", "channel", channelID, "err", err)
-		return
-	}
-	resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		slog.Warn("webhook returned error", "channel", channelID, "status", resp.StatusCode)
-	}
-}
+	// Execute HTTP
+	outRes = doHTTP(outReq, channelID)
 
-func applyWebhookAuth(req *http.Request, secret string, body []byte) {
-	if secret == "" {
-		return
-	}
-	if strings.HasPrefix(secret, "bearer:") {
-		req.Header.Set("Authorization", "Bearer "+secret[7:])
-		return
-	}
-	if strings.HasPrefix(secret, "header:") {
-		parts := strings.SplitN(secret[7:], ":", 2)
-		if len(parts) == 2 {
-			req.Header.Set(parts[0], parts[1])
+	// Phase 2: onResponse
+	if outRes != nil {
+		if fn := vm.Get("onResponse"); fn != nil && !goja.IsUndefined(fn) {
+			if callable, ok := goja.AssertFunction(fn); ok {
+				// Set ctx.res
+				ctxObj := vm.Get("ctx").ToObject(vm)
+				ctxObj.Set("res", map[string]any{
+					"status":  outRes.Status,
+					"headers": outRes.Headers,
+					"body":    outRes.Body,
+				})
+				if _, err := callable(goja.Undefined(), vm.Get("ctx")); err != nil {
+					slog.Error("webhook onResponse error", "channel", channelID, "err", err)
+				}
+			}
 		}
-		return
 	}
-	key := secret
-	if strings.HasPrefix(secret, "hmac:") {
-		key = secret[5:]
+
+	return outReq, outRes, replies, false, nil
+}
+
+func (s *Webhook) sendReplies(d Delivery, replies []string) {
+	for _, text := range replies {
+		if text == "" {
+			continue
+		}
+		_, err := d.Provider.Send(context.Background(), provider.OutboundMessage{
+			Recipient: d.Message.Sender,
+			Text:      text,
+		})
+		if err != nil {
+			slog.Error("webhook reply failed", "channel", d.Channel.ID, "err", err)
+			continue
+		}
+		chID := d.Channel.ID
+		payload, _ := json.Marshal(map[string]string{"content": text})
+		s.DB.SaveMessage(&database.Message{
+			BotID:     d.BotDBID,
+			ChannelID: &chID,
+			Direction: "outbound",
+			Recipient: d.Message.Sender,
+			MsgType:   "text",
+			Payload:   payload,
+		})
 	}
-	mac := hmac.New(sha256.New, []byte(key))
-	mac.Write(body)
-	sig := hex.EncodeToString(mac.Sum(nil))
-	req.Header.Set("X-Hub-Signature", "sha256="+sig)
+}
+
+// --- Types ---
+
+type reqData struct {
+	URL     string            `json:"url"`
+	Method  string            `json:"method"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
+}
+
+type resData struct {
+	Status  int               `json:"status"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body"`
 }
 
 type webhookPayload struct {
@@ -187,4 +207,89 @@ type webhookPayload struct {
 	Content   string                 `json:"content"`
 	Timestamp int64                  `json:"timestamp"`
 	Items     []provider.MessageItem `json:"items"`
+}
+
+func buildPayload(d Delivery) webhookPayload {
+	return webhookPayload{
+		Event: "message", ChannelID: d.Channel.ID, BotID: d.BotDBID,
+		SeqID: d.SeqID, Sender: d.Message.Sender, MsgType: d.MsgType,
+		Content: d.Content, Timestamp: d.Message.Timestamp, Items: d.Message.Items,
+	}
+}
+
+// --- HTTP helpers ---
+
+func applyAuth(req *reqData, auth *database.WebhookAuth, body []byte) {
+	if auth == nil {
+		return
+	}
+	switch auth.Type {
+	case "bearer":
+		req.Headers["Authorization"] = "Bearer " + auth.Token
+	case "header":
+		req.Headers[auth.Name] = auth.Value
+	case "hmac":
+		mac := hmac.New(sha256.New, []byte(auth.Secret))
+		mac.Write(body)
+		req.Headers["X-Hub-Signature"] = "sha256=" + hex.EncodeToString(mac.Sum(nil))
+	}
+}
+
+func doHTTP(req *reqData, channelID string) *resData {
+	httpReq, err := http.NewRequest(req.Method, req.URL, bytes.NewReader([]byte(req.Body)))
+	if err != nil {
+		slog.Error("webhook build failed", "channel", channelID, "err", err)
+		return nil
+	}
+	for k, v := range req.Headers {
+		httpReq.Header.Set(k, v)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		slog.Error("webhook delivery failed", "channel", channelID, "err", err)
+		return nil
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	headers := make(map[string]string)
+	for k := range resp.Header {
+		headers[k] = resp.Header.Get(k)
+	}
+	if resp.StatusCode >= 400 {
+		slog.Warn("webhook error status", "channel", channelID, "status", resp.StatusCode)
+	}
+	return &resData{Status: resp.StatusCode, Headers: headers, Body: string(respBody)}
+}
+
+func extractReqFromCtx(obj any, fallback *reqData) *reqData {
+	m, ok := obj.(map[string]any)
+	if !ok {
+		return fallback
+	}
+	rm, ok := m["req"].(map[string]any)
+	if !ok {
+		return fallback
+	}
+	out := &reqData{URL: fallback.URL, Method: fallback.Method, Headers: make(map[string]string), Body: fallback.Body}
+	for k, v := range fallback.Headers {
+		out.Headers[k] = v
+	}
+	if u, ok := rm["url"].(string); ok && u != "" {
+		out.URL = u
+	}
+	if m, ok := rm["method"].(string); ok && m != "" {
+		out.Method = m
+	}
+	if b, ok := rm["body"].(string); ok {
+		out.Body = b
+	}
+	if h, ok := rm["headers"].(map[string]any); ok {
+		for k, v := range h {
+			if vs, ok := v.(string); ok {
+				out.Headers[k] = vs
+			}
+		}
+	}
+	return out
 }

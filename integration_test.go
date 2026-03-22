@@ -75,7 +75,7 @@ func setup(t *testing.T) *testEnv {
 	sinks := []sink.Sink{
 		&sink.WS{Hub: hub},
 		&sink.AI{DB: db},
-		&sink.Webhook{},
+		&sink.Webhook{DB: db},
 	}
 	mgr := bot.NewManager(db, hub, sinks)
 	server.BotManager = mgr
@@ -1483,7 +1483,7 @@ func TestWebhookDelivery(t *testing.T) {
 	// Create channel with webhook
 	ch, _ := env.db.CreateChannel(botObj.ID, "HookChan", "", nil, nil)
 	env.db.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig,
-		&database.WebhookConfig{URL: hookSrv.URL, Auth: "bearer:test-token"}, true)
+		&database.WebhookConfig{URL: hookSrv.URL, Auth: &database.WebhookAuth{Type: "bearer", Token: "test-token"}}, true)
 
 	inst, _ := env.mgr.GetInstance(botObj.ID)
 	mock := inst.Provider.(*mockProvider.Provider)
@@ -1538,7 +1538,7 @@ func TestWebhookHMACSignature(t *testing.T) {
 
 	ch, _ := env.db.CreateChannel(botObj.ID, "HmacChan", "", nil, nil)
 	env.db.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig,
-		&database.WebhookConfig{URL: hookSrv.URL, Auth: "hmac:my-secret"}, true)
+		&database.WebhookConfig{URL: hookSrv.URL, Auth: &database.WebhookAuth{Type: "hmac", Secret: "my-secret"}}, true)
 
 	inst, _ := env.mgr.GetInstance(botObj.ID)
 	mock := inst.Provider.(*mockProvider.Provider)
@@ -1579,12 +1579,13 @@ func TestWebhookWithScript(t *testing.T) {
 
 	ch, _ := env.db.CreateChannel(botObj.ID, "ScriptChan", "", nil, nil)
 
-	// Script transforms payload to Slack-like format
-	script := `({
-		headers: {"X-Custom": "hello"},
-		body: JSON.stringify({text: msg.sender + ": " + msg.content})
-	})`
-
+	// Script uses onRequest to modify, onResponse to reply
+	script := `
+function onRequest(ctx) {
+  ctx.req.headers["X-Custom"] = "hello";
+  ctx.req.body = JSON.stringify({text: ctx.msg.sender + ": " + ctx.msg.content});
+}
+`
 	env.db.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig,
 		&database.WebhookConfig{URL: hookSrv.URL, Script: script}, true)
 
@@ -1629,8 +1630,12 @@ func TestWebhookScriptSkip(t *testing.T) {
 
 	ch, _ := env.db.CreateChannel(botObj.ID, "SkipChan", "", nil, nil)
 
-	// Script returns null for non-text messages
-	script := `if (msg.msg_type !== "text") null; else ({body: JSON.stringify({t: msg.content})})`
+	// Script skips non-text messages
+	script := `
+function onRequest(ctx) {
+  if (ctx.msg.msg_type !== "text") skip();
+}
+`
 	env.db.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig,
 		&database.WebhookConfig{URL: hookSrv.URL, Script: script}, true)
 
@@ -1656,6 +1661,110 @@ func TestWebhookScriptSkip(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if received {
 		t.Error("image message should be skipped by script")
+	}
+}
+
+func TestWebhookOnResponse(t *testing.T) {
+	env := setup(t)
+	defer env.close()
+
+	// Webhook server returns {"answer": "42"}
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"answer": "42"}`))
+	}))
+	defer hookSrv.Close()
+
+	env.register("respuser", "password123")
+	botObj := env.createBotForUser("Bot1")
+	env.mgr.StartBot(context.Background(), botObj)
+
+	ch, _ := env.db.CreateChannel(botObj.ID, "RespChan", "", nil, nil)
+	script := `
+function onResponse(ctx) {
+  var data = JSON.parse(ctx.res.body);
+  if (data.answer) reply(data.answer);
+}
+`
+	env.db.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig,
+		&database.WebhookConfig{URL: hookSrv.URL, Script: script}, true)
+
+	inst, _ := env.mgr.GetInstance(botObj.ID)
+	mock := inst.Provider.(*mockProvider.Provider)
+
+	mock.SimulateInbound(provider.InboundMessage{
+		ExternalID: "850", Sender: "u@wx", Timestamp: time.Now().UnixMilli(),
+		Items: []provider.MessageItem{{Type: "text", Text: "question"}},
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify bot sent reply "42" back to user
+	sent := mock.SentMessages()
+	found := false
+	for _, m := range sent {
+		if m.Text == "42" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected reply '42', sent = %+v", sent)
+	}
+
+	// Verify reply saved in DB
+	msgs, _ := env.db.ListChannelMessages(ch.ID, "u@wx", 10)
+	replyFound := false
+	for _, m := range msgs {
+		var p struct{ Content string }
+		json.Unmarshal(m.Payload, &p)
+		if p.Content == "42" && m.Direction == "outbound" {
+			replyFound = true
+		}
+	}
+	if !replyFound {
+		t.Error("reply not saved in DB")
+	}
+}
+
+func TestWebhookAutoReplyWithoutScript(t *testing.T) {
+	env := setup(t)
+	defer env.close()
+
+	// Server returns {"reply": "auto-reply"}
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"reply": "auto-reply"}`))
+	}))
+	defer hookSrv.Close()
+
+	env.register("autouser", "password123")
+	botObj := env.createBotForUser("Bot1")
+	env.mgr.StartBot(context.Background(), botObj)
+
+	ch, _ := env.db.CreateChannel(botObj.ID, "AutoChan", "", nil, nil)
+	// No script — auto-reply from {"reply": "..."} in response
+	env.db.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig,
+		&database.WebhookConfig{URL: hookSrv.URL}, true)
+
+	inst, _ := env.mgr.GetInstance(botObj.ID)
+	mock := inst.Provider.(*mockProvider.Provider)
+
+	mock.SimulateInbound(provider.InboundMessage{
+		ExternalID: "860", Sender: "u@wx", Timestamp: time.Now().UnixMilli(),
+		Items: []provider.MessageItem{{Type: "text", Text: "hi"}},
+	})
+
+	time.Sleep(500 * time.Millisecond)
+
+	sent := mock.SentMessages()
+	found := false
+	for _, m := range sent {
+		if m.Text == "auto-reply" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected auto-reply, sent = %+v", sent)
 	}
 }
 
