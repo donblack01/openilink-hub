@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Send, Cable, Copy, Check, Plus, Trash2, RotateCw } from "lucide-react";
+import { ArrowLeft, Send, Cable, Copy, Check, Plus, Trash2, RotateCw, Radio, X } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
@@ -280,6 +280,7 @@ function WsProtocolDocs() {
 function ChannelRow({ channel, onRefresh }: { channel: any; onRefresh: () => void }) {
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedWs, setCopiedWs] = useState(false);
+  const [showLive, setShowLive] = useState(false);
 
   const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
   const wsUrl = `${wsProto}//${location.host}/api/ws?key=${channel.api_key}`;
@@ -306,6 +307,9 @@ function ChannelRow({ channel, onRefresh }: { channel: any; onRefresh: () => voi
           )}
         </div>
         <div className="flex gap-1 shrink-0">
+          <Button variant={showLive ? "default" : "ghost"} size="sm" onClick={() => setShowLive(!showLive)}>
+            <Radio className="w-3.5 h-3.5" />
+          </Button>
           <Button variant="ghost" size="sm" onClick={async () => { if (confirm("重新生成 Key？")) { await api.rotateKey(channel.id); onRefresh(); } }}>
             <RotateCw className="w-3.5 h-3.5" />
           </Button>
@@ -317,6 +321,164 @@ function ChannelRow({ channel, onRefresh }: { channel: any; onRefresh: () => voi
 
       <CopyRow label="API Key" value={channel.api_key} copied={copiedKey} onCopy={copyKey} />
       <CopyRow label="WebSocket" value={wsUrl} copied={copiedWs} onCopy={copyWs} />
+
+      {showLive && <LivePanel wsUrl={wsUrl} onClose={() => setShowLive(false)} />}
+    </div>
+  );
+}
+
+type WsLogEntry = {
+  id: number;
+  dir: "in" | "out" | "sys";
+  type: string;
+  data: any;
+  time: string;
+};
+
+function LivePanel({ wsUrl, onClose }: { wsUrl: string; onClose: () => void }) {
+  const [status, setStatus] = useState<"connecting" | "connected" | "disconnected">("connecting");
+  const [logs, setLogs] = useState<WsLogEntry[]>([]);
+  const [input, setInput] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const wsRef = useRef<WebSocket | null>(null);
+  const logEndRef = useRef<HTMLDivElement>(null);
+  const seqRef = useRef(0);
+
+  const addLog = useCallback((dir: WsLogEntry["dir"], type: string, data: any) => {
+    setLogs((prev) => {
+      const entry: WsLogEntry = {
+        id: ++seqRef.current,
+        dir,
+        type,
+        data,
+        time: new Date().toLocaleTimeString(),
+      };
+      const next = [...prev, entry];
+      return next.length > 200 ? next.slice(-200) : next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setStatus("connected");
+      addLog("sys", "connected", null);
+    };
+
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        addLog("in", msg.type, msg.data);
+      } catch {
+        addLog("in", "raw", e.data);
+      }
+    };
+
+    ws.onclose = () => {
+      setStatus("disconnected");
+      addLog("sys", "disconnected", null);
+    };
+
+    ws.onerror = () => {
+      addLog("sys", "error", null);
+    };
+
+    // Ping keepalive
+    const pingInterval = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "ping" }));
+      }
+    }, 30000);
+
+    return () => {
+      clearInterval(pingInterval);
+      ws.close();
+    };
+  }, [wsUrl, addLog]);
+
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  function handleSend(e: React.FormEvent) {
+    e.preventDefault();
+    if (!input.trim() || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+
+    const reqId = `req-${Date.now()}`;
+    const msg = {
+      type: "send_text",
+      req_id: reqId,
+      data: { recipient, text: input },
+    };
+    wsRef.current.send(JSON.stringify(msg));
+    addLog("out", "send_text", msg.data);
+    setInput("");
+  }
+
+  const statusColor = {
+    connecting: "text-yellow-500",
+    connected: "text-green-500",
+    disconnected: "text-destructive",
+  }[status];
+
+  return (
+    <div className="border rounded-lg bg-background overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-1.5 border-b bg-secondary/30">
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-medium ${statusColor}`}>
+            {status === "connected" ? "LIVE" : status === "connecting" ? "CONNECTING" : "DISCONNECTED"}
+          </span>
+        </div>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground cursor-pointer">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Log */}
+      <div className="h-48 overflow-y-auto font-mono text-[11px] p-2 space-y-0.5">
+        {logs.map((log) => (
+          <div key={log.id} className="flex gap-2">
+            <span className="text-muted-foreground shrink-0 w-16">{log.time}</span>
+            <span className={`shrink-0 w-6 ${
+              log.dir === "in" ? "text-green-500" : log.dir === "out" ? "text-blue-500" : "text-muted-foreground"
+            }`}>
+              {log.dir === "in" ? "◀" : log.dir === "out" ? "▶" : "●"}
+            </span>
+            <span className="text-primary shrink-0">{log.type}</span>
+            {log.data != null && (
+              <span className="text-muted-foreground truncate">
+                {typeof log.data === "string" ? log.data : JSON.stringify(log.data)}
+              </span>
+            )}
+          </div>
+        ))}
+        {logs.length === 0 && (
+          <p className="text-muted-foreground text-center py-4">等待消息...</p>
+        )}
+        <div ref={logEndRef} />
+      </div>
+
+      {/* Send */}
+      <form onSubmit={handleSend} className="flex gap-1.5 p-2 border-t">
+        <Input
+          value={recipient}
+          onChange={(e) => setRecipient(e.target.value)}
+          placeholder="接收人"
+          className="h-7 text-[11px] w-28 font-mono"
+        />
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="发送内容..."
+          className="h-7 text-[11px] flex-1"
+        />
+        <Button type="submit" size="sm" className="h-7 px-2" disabled={status !== "connected" || !input.trim()}>
+          <Send className="w-3 h-3" />
+        </Button>
+      </form>
     </div>
   );
 }
