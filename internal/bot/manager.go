@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 	"regexp"
 	"strings"
 	"sync"
@@ -263,6 +264,8 @@ func (m *Manager) resolveAIConfig(cfg database.AIConfig) database.AIConfig {
 	return cfg
 }
 
+const aiReplyTimeout = 60 * time.Second
+
 // aiReply calls the AI completion API and sends the reply through the bot.
 // It also sends typing indicators while the AI is processing.
 func (m *Manager) aiReply(inst *Instance, ch database.Channel, sender, contextToken, text string) {
@@ -272,7 +275,8 @@ func (m *Manager) aiReply(inst *Instance, ch database.Channel, sender, contextTo
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), aiReplyTimeout)
+	defer cancel()
 
 	// Show typing indicator while AI is processing
 	var typingTicket string
