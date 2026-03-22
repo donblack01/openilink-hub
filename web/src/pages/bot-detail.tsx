@@ -225,6 +225,17 @@ export function BotDetailPage() {
       : m));
   }
 
+  async function retrySend(m: Message) {
+    const optId = m.id;
+    setMessages((prev) => prev.map((msg) => msg.id === optId
+      ? { ...msg, payload: { ...msg.payload, _sending: true, _error: undefined } }
+      : msg));
+    const err = await doSend({ text: m.payload?.content || "" });
+    setMessages((prev) => prev.map((msg) => msg.id === optId
+      ? { ...msg, payload: { ...msg.payload, _sending: false, _error: err || undefined } }
+      : msg));
+  }
+
   async function doSend(body: any): Promise<string | null> {
     setSending(true);
     setSendError("");
@@ -295,7 +306,10 @@ export function BotDetailPage() {
                     <MessageContent m={m} />
                     <div className={`text-[10px] mt-1 ${isIn ? "text-muted-foreground" : "opacity-50"}`}>
                       {isSending ? "发送中..." : sendErr ? (
-                        <span className="text-destructive">{sendErr}</span>
+                        <span className="text-destructive">
+                          {sendErr}
+                          <button className="ml-2 underline cursor-pointer" onClick={(e) => { e.stopPropagation(); retrySend(m); }}>重试</button>
+                        </span>
                       ) : new Date(m.created_at * 1000).toLocaleTimeString()}
                     </div>
                   </div>
