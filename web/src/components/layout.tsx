@@ -20,14 +20,14 @@ export function Layout() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="border-b border-[var(--border)] px-6 py-3 flex items-center justify-between shrink-0">
-        <h1 className="font-semibold text-sm">OpenILink Hub</h1>
+      <header className="border-b px-6 py-3 flex items-center justify-between shrink-0">
+        <Link to="/" className="font-semibold text-sm hover:opacity-80">OpenILink Hub</Link>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-[var(--muted-foreground)]">{user.username}</span>
-          <Link to="/settings" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+          <span className="text-xs text-muted-foreground">{user.username}</span>
+          <Link to="/settings" className="text-muted-foreground hover:text-foreground">
             <Settings className="w-4 h-4" />
           </Link>
-          <button onClick={handleLogout} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] cursor-pointer">
+          <button onClick={handleLogout} className="text-muted-foreground hover:text-foreground cursor-pointer">
             <LogOut className="w-4 h-4" />
           </button>
         </div>

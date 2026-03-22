@@ -1,28 +1,36 @@
 import { cn } from "../../lib/utils";
 import { type ButtonHTMLAttributes } from "react";
 
-type Variant = "default" | "secondary" | "destructive" | "ghost" | "outline";
+type Variant = "default" | "secondary" | "destructive" | "ghost" | "outline" | "link";
 
 const variants: Record<Variant, string> = {
-  default: "bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90",
-  secondary: "bg-[var(--secondary)] text-[var(--secondary-foreground)] hover:opacity-80",
-  destructive: "bg-[var(--destructive)] text-white hover:opacity-90",
-  ghost: "hover:bg-[var(--secondary)]",
-  outline: "border border-[var(--border)] hover:bg-[var(--secondary)]",
+  default: "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90",
+  secondary: "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
+  destructive: "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90",
+  ghost: "hover:bg-accent hover:text-accent-foreground",
+  outline: "border border-input bg-background shadow-xs hover:bg-accent hover:text-accent-foreground",
+  link: "text-primary underline-offset-4 hover:underline",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: Variant;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "icon";
 }
 
 export function Button({ className, variant = "default", size = "md", ...props }: ButtonProps) {
-  const sizeClass = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-6 py-3 text-base" }[size];
+  const sizeClass = {
+    sm: "h-8 rounded-md gap-1.5 px-3 text-xs",
+    md: "h-9 px-4 py-2 rounded-md text-sm",
+    lg: "h-10 rounded-md px-6 text-base",
+    icon: "size-9 rounded-md",
+  }[size];
   return (
     <button
       className={cn(
-        "inline-flex items-center justify-center rounded-[var(--radius)] font-medium transition-colors",
-        "disabled:opacity-50 disabled:pointer-events-none cursor-pointer",
+        "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium",
+        "transition-all cursor-pointer",
+        "disabled:pointer-events-none disabled:opacity-50",
+        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
         variants[variant], sizeClass, className
       )}
       {...props}

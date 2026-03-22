@@ -50,7 +50,7 @@ export function LoginPage() {
       <Card className="w-full max-w-sm space-y-6">
         <div className="text-center">
           <h1 className="text-xl font-semibold">OpenILink Hub</h1>
-          <p className="text-sm text-[var(--muted-foreground)] mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {mode === "login" ? "登录你的账号" : "创建新账号"}
           </p>
         </div>
@@ -68,7 +68,7 @@ export function LoginPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          {error && <p className="text-sm text-[var(--destructive)]">{error}</p>}
+          {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "..." : mode === "login" ? "登录" : "注册"}
           </Button>
@@ -78,12 +78,10 @@ export function LoginPage() {
           <>
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t border-[var(--border)]" />
+                <span className="w-full border-t" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-[var(--card)] px-2 text-[var(--muted-foreground)]">
-                  或
-                </span>
+                <span className="bg-card px-2 text-muted-foreground">或</span>
               </div>
             </div>
             <div className="space-y-2">
@@ -102,11 +100,11 @@ export function LoginPage() {
           </>
         )}
 
-        <p className="text-center text-sm text-[var(--muted-foreground)]">
+        <p className="text-center text-sm text-muted-foreground">
           {mode === "login" ? "没有账号？" : "已有账号？"}
           <button
             type="button"
-            className="text-[var(--primary)] ml-1 hover:underline cursor-pointer"
+            className="text-primary ml-1 hover:underline cursor-pointer"
             onClick={() => { setMode(mode === "login" ? "register" : "login"); setError(""); }}
           >
             {mode === "login" ? "注册" : "登录"}

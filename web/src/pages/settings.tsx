@@ -61,17 +61,15 @@ export function SettingsPage() {
     <div className="space-y-6">
       <h2 className="text-lg font-semibold">设置</h2>
 
-      {/* Account info */}
       <Card className="space-y-3">
         <h3 className="text-sm font-medium">账号信息</h3>
         <div className="text-sm space-y-1">
-          <p><span className="text-[var(--muted-foreground)]">用户名：</span>{user.username}</p>
-          <p><span className="text-[var(--muted-foreground)]">显示名：</span>{user.display_name}</p>
-          <p><span className="text-[var(--muted-foreground)]">角色：</span>{user.role}</p>
+          <p><span className="text-muted-foreground">用户名：</span>{user.username}</p>
+          <p><span className="text-muted-foreground">显示名：</span>{user.display_name}</p>
+          <p><span className="text-muted-foreground">角色：</span>{user.role}</p>
         </div>
       </Card>
 
-      {/* OAuth account binding */}
       {oauthProviders.length > 0 && (
         <Card className="space-y-3">
           <h3 className="text-sm font-medium">第三方账号绑定</h3>
@@ -80,19 +78,16 @@ export function SettingsPage() {
               const account = oauthAccounts.find((a) => a.provider === provider);
               const linked = !!account;
               return (
-                <div
-                  key={provider}
-                  className="flex items-center justify-between p-3 rounded-lg border border-[var(--border)] bg-[var(--background)]"
-                >
+                <div key={provider} className="flex items-center justify-between p-3 rounded-lg border bg-background">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-[var(--secondary)] flex items-center justify-center">
+                    <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center">
                       <span className="text-xs font-medium">
                         {(providerLabels[provider] || provider).charAt(0).toUpperCase()}
                       </span>
                     </div>
                     <div>
                       <p className="text-sm font-medium">{providerLabels[provider] || provider}</p>
-                      <p className="text-xs text-[var(--muted-foreground)]">
+                      <p className="text-xs text-muted-foreground">
                         {linked ? `已绑定：${account.username}` : "未绑定"}
                       </p>
                     </div>
@@ -113,7 +108,6 @@ export function SettingsPage() {
         </Card>
       )}
 
-      {/* Admin: OAuth config */}
       {user.role === "admin" && <OAuthConfigSection />}
     </div>
   );
@@ -127,13 +121,10 @@ function OAuthConfigSection() {
     try {
       const data = await api.getOAuthConfig();
       setConfig(data);
-    } catch {
-      // Not admin or not available
-    }
+    } catch { /* not admin */ }
   }
 
   useEffect(() => { loadConfig(); }, []);
-
   if (!config) return null;
 
   const callbackBase = window.location.origin + "/api/auth/oauth/";
@@ -142,11 +133,11 @@ function OAuthConfigSection() {
     <Card className="space-y-4">
       <div>
         <h3 className="text-sm font-medium">OAuth 配置</h3>
-        <p className="text-xs text-[var(--muted-foreground)] mt-1">
+        <p className="text-xs text-muted-foreground mt-1">
           管理员可在此配置第三方登录，无需重启服务。DB 配置优先于环境变量。
         </p>
       </div>
-      {error && <p className="text-xs text-[var(--destructive)]">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
       {Object.keys(providerLabels).map((name) => (
         <OAuthProviderForm
           key={name}
@@ -166,13 +157,8 @@ function OAuthConfigSection() {
 function OAuthProviderForm({
   name, label, config, callbackURL, help, onSaved, onError,
 }: {
-  name: string;
-  label: string;
-  config: any;
-  callbackURL: string;
-  help: string;
-  onSaved: () => void;
-  onError: (msg: string) => void;
+  name: string; label: string; config: any; callbackURL: string;
+  help: string; onSaved: () => void; onError: (msg: string) => void;
 }) {
   const [clientId, setClientId] = useState(config?.client_id || "");
   const [clientSecret, setClientSecret] = useState("");
@@ -188,41 +174,29 @@ function OAuthProviderForm({
     setSaving(true);
     onError("");
     try {
-      await api.setOAuthConfig(name, {
-        client_id: clientId.trim(),
-        client_secret: clientSecret,
-      });
+      await api.setOAuthConfig(name, { client_id: clientId.trim(), client_secret: clientSecret });
       onSaved();
-    } catch (err: any) {
-      onError(err.message);
-    }
+    } catch (err: any) { onError(err.message); }
     setSaving(false);
   }
 
   async function handleDelete() {
     if (!confirm(`删除 ${label} 的 OAuth 配置？将回退到环境变量配置。`)) return;
     onError("");
-    try {
-      await api.deleteOAuthConfig(name);
-      onSaved();
-    } catch (err: any) {
-      onError(err.message);
-    }
+    try { await api.deleteOAuthConfig(name); onSaved(); } catch (err: any) { onError(err.message); }
   }
 
   const source = config?.source;
   const enabled = config?.enabled;
 
   return (
-    <div className="space-y-2 p-3 rounded-lg border border-[var(--border)] bg-[var(--background)]">
+    <div className="space-y-2 p-3 rounded-lg border bg-background">
       <div className="flex items-center justify-between">
         <div>
           <span className="text-sm font-medium">{label}</span>
           {enabled && (
             <span className={`ml-2 text-[10px] px-1.5 py-0.5 rounded ${
-              source === "db"
-                ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300"
-                : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+              source === "db" ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
             }`}>
               {source === "db" ? "数据库" : "环境变量"}
             </span>
@@ -230,29 +204,18 @@ function OAuthProviderForm({
         </div>
         {source === "db" && (
           <Button variant="ghost" size="sm" onClick={handleDelete}>
-            <Trash2 className="w-3.5 h-3.5 text-[var(--destructive)]" />
+            <Trash2 className="w-3.5 h-3.5 text-destructive" />
           </Button>
         )}
       </div>
 
       <div className="space-y-1.5">
-        <Input
-          placeholder="Client ID"
-          value={clientId}
-          onChange={(e) => setClientId(e.target.value)}
-          className="h-8 text-xs font-mono"
-        />
-        <Input
-          type="password"
-          placeholder={enabled ? "Client Secret（留空保持不变）" : "Client Secret"}
-          value={clientSecret}
-          onChange={(e) => setClientSecret(e.target.value)}
-          className="h-8 text-xs font-mono"
-        />
+        <Input placeholder="Client ID" value={clientId} onChange={(e) => setClientId(e.target.value)} className="h-8 text-xs font-mono" />
+        <Input type="password" placeholder={enabled ? "Client Secret（留空保持不变）" : "Client Secret"} value={clientSecret} onChange={(e) => setClientSecret(e.target.value)} className="h-8 text-xs font-mono" />
       </div>
 
       <div className="flex items-center justify-between">
-        <div className="text-[10px] text-[var(--muted-foreground)] space-y-0.5">
+        <div className="text-[10px] text-muted-foreground space-y-0.5">
           <p>回调地址：<code className="select-all">{callbackURL}</code></p>
           <p>{help}</p>
         </div>

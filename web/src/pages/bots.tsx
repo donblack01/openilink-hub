@@ -52,11 +52,10 @@ export function BotsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Bind section */}
       {binding ? (
         <Card className="flex flex-col items-center gap-4 py-8">
           <QrCanvas url={qrUrl} />
-          <p className="text-sm text-[var(--muted-foreground)]">{bindStatus}</p>
+          <p className="text-sm text-muted-foreground">{bindStatus}</p>
           <Button variant="ghost" size="sm" onClick={() => { setBinding(false); setQrUrl(""); }}>取消</Button>
         </Card>
       ) : (
@@ -65,7 +64,6 @@ export function BotsPage() {
         </Button>
       )}
 
-      {/* Bot list */}
       {bots.map((bot) => (
         <BotCard
           key={bot.id}
@@ -76,7 +74,7 @@ export function BotsPage() {
       ))}
 
       {bots.length === 0 && !binding && (
-        <p className="text-center text-sm text-[var(--muted-foreground)] py-8">点击上方按钮绑定你的第一个 Bot</p>
+        <p className="text-center text-sm text-muted-foreground py-8">点击上方按钮绑定你的第一个 Bot</p>
       )}
     </div>
   );
@@ -110,13 +108,13 @@ function BotCard({ bot, channelCount, onRefresh }: { bot: any; channelCount: num
 
   return (
     <Card
-      className="flex items-center justify-between cursor-pointer hover:border-[var(--primary)] transition-colors"
+      className="flex items-center justify-between cursor-pointer hover:border-primary/50 transition-colors"
       onClick={() => navigate(`/bot/${bot.id}`)}
     >
       <div>
         <p className="font-medium text-sm">{bot.name}</p>
-        <p className="text-xs text-[var(--muted-foreground)] font-mono mt-0.5">{bot.extra?.bot_id}</p>
-        <p className="text-xs text-[var(--muted-foreground)] mt-1">{channelCount} 个通道</p>
+        <p className="text-xs text-muted-foreground font-mono mt-0.5">{bot.extra?.bot_id}</p>
+        <p className="text-xs text-muted-foreground mt-1">{channelCount} 个通道</p>
       </div>
       <div className="flex items-center gap-2">
         <Badge variant={statusVariant[bot.status] || "outline"}>{bot.status}</Badge>
@@ -126,7 +124,7 @@ function BotCard({ bot, channelCount, onRefresh }: { bot: any; channelCount: num
           </Button>
         )}
         <Button variant="ghost" size="sm" onClick={handleDelete}>
-          <Trash2 className="w-3.5 h-3.5 text-[var(--destructive)]" />
+          <Trash2 className="w-3.5 h-3.5 text-destructive" />
         </Button>
       </div>
     </Card>

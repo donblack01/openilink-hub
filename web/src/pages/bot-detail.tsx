@@ -79,39 +79,38 @@ export function BotDetailPage() {
     setSending(false);
   }
 
-  if (!bot) return <p className="text-sm text-[var(--muted-foreground)] p-8">加载中...</p>;
+  if (!bot) return <p className="text-sm text-muted-foreground p-8">加载中...</p>;
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)]">
       {/* Header */}
-      <div className="flex items-center gap-3 pb-4 border-b border-[var(--border)] shrink-0">
-        <Link to="/" className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+      <div className="flex items-center gap-3 pb-4 border-b shrink-0">
+        <Link to="/" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="w-4 h-4" />
         </Link>
         <div className="flex-1 min-w-0">
           <h2 className="font-semibold text-sm">{bot.name}</h2>
-          <p className="text-xs text-[var(--muted-foreground)] font-mono truncate">{bot.extra?.bot_id}</p>
+          <p className="text-xs text-muted-foreground font-mono truncate">{bot.extra?.bot_id}</p>
         </div>
         <Badge variant={bot.status === "connected" ? "default" : "outline"}>{bot.status}</Badge>
-        <div className="flex border border-[var(--border)] rounded-lg overflow-hidden">
-          <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "chat" ? "bg-[var(--secondary)]" : "text-[var(--muted-foreground)]"}`} onClick={() => setTab("chat")}>消息</button>
-          <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "channels" ? "bg-[var(--secondary)]" : "text-[var(--muted-foreground)]"}`} onClick={() => setTab("channels")}>通道</button>
+        <div className="flex border rounded-lg overflow-hidden">
+          <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "chat" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setTab("chat")}>消息</button>
+          <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "channels" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setTab("channels")}>通道</button>
         </div>
       </div>
 
       {tab === "chat" ? (
-        <div className="flex-1 flex flex-col overflow-hidden mt-3 rounded-xl border border-[var(--border)]">
-          {/* Messages */}
+        <div className="flex-1 flex flex-col overflow-hidden mt-3 rounded-xl border">
           <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
             {messages.map((m) => {
               const isIn = m.direction === "inbound";
               return (
                 <div key={m.id} className={`flex ${isIn ? "justify-start" : "justify-end"}`}>
                   <div className={`max-w-[75%] px-3 py-2 rounded-xl text-sm ${
-                    isIn ? "bg-[var(--secondary)] rounded-bl-sm" : "bg-[var(--primary)] text-[var(--primary-foreground)] rounded-br-sm"
+                    isIn ? "bg-secondary rounded-bl-sm" : "bg-primary text-primary-foreground rounded-br-sm"
                   }`}>
                     {getContent(m)}
-                    <div className={`text-[10px] mt-1 ${isIn ? "text-[var(--muted-foreground)]" : "opacity-50"}`}>
+                    <div className={`text-[10px] mt-1 ${isIn ? "text-muted-foreground" : "opacity-50"}`}>
                       {new Date(m.created_at * 1000).toLocaleTimeString()}
                     </div>
                   </div>
@@ -119,18 +118,17 @@ export function BotDetailPage() {
               );
             })}
             {messages.length === 0 && (
-              <p className="text-center text-xs text-[var(--muted-foreground)] py-12">暂无消息</p>
+              <p className="text-center text-xs text-muted-foreground py-12">暂无消息</p>
             )}
             <div ref={bottomRef} />
           </div>
 
-          {/* Send */}
           {sendError && (
-            <div className="px-4 py-2 text-xs text-[var(--destructive)] bg-[var(--secondary)] border-t border-[var(--border)]">
+            <div className="px-4 py-2 text-xs text-destructive bg-secondary border-t">
               {sendError}
             </div>
           )}
-          <form onSubmit={handleSend} className="flex gap-2 p-3 border-t border-[var(--border)] shrink-0">
+          <form onSubmit={handleSend} className="flex gap-2 p-3 border-t shrink-0">
             <Input
               value={input}
               onChange={(e) => { setInput(e.target.value); setSendError(""); }}
@@ -178,7 +176,7 @@ function ChannelsTab({ botId, channels, onRefresh }: { botId: string; channels: 
         </Button>
       )}
 
-      <button onClick={() => setShowDocs(!showDocs)} className="text-xs text-[var(--muted-foreground)] hover:text-[var(--primary)] cursor-pointer">
+      <button onClick={() => setShowDocs(!showDocs)} className="text-xs text-muted-foreground hover:text-primary cursor-pointer">
         {showDocs ? "收起" : "查看"} WebSocket 协议说明
       </button>
       {showDocs && <WsProtocolDocs />}
@@ -188,13 +186,13 @@ function ChannelsTab({ botId, channels, onRefresh }: { botId: string; channels: 
 
 function WsProtocolDocs() {
   return (
-    <div className="text-xs text-[var(--muted-foreground)] space-y-3 p-4 rounded-lg border border-[var(--border)] bg-[var(--background)]">
-      <p className="font-medium text-[var(--foreground)]">WebSocket 协议说明</p>
-      <p>所有消息均为 JSON 格式，包含 <code className="text-[var(--primary)]">type</code> 字段标识消息类型。</p>
+    <div className="text-xs text-muted-foreground space-y-3 p-4 rounded-lg border bg-background">
+      <p className="font-medium text-foreground">WebSocket 协议说明</p>
+      <p>所有消息均为 JSON 格式，包含 <code className="text-primary">type</code> 字段标识消息类型。</p>
 
       <div>
-        <p className="font-medium text-[var(--foreground)] mt-3 mb-1">连接后自动收到：init</p>
-        <pre className="bg-[var(--card)] p-2 rounded overflow-x-auto">{`{
+        <p className="font-medium text-foreground mt-3 mb-1">连接后自动收到：init</p>
+        <pre className="bg-card p-2 rounded overflow-x-auto">{`{
   "type": "init",
   "data": {
     "channel_id": "uuid",
@@ -206,8 +204,8 @@ function WsProtocolDocs() {
       </div>
 
       <div>
-        <p className="font-medium text-[var(--foreground)] mt-3 mb-1">收到消息：message</p>
-        <pre className="bg-[var(--card)] p-2 rounded overflow-x-auto">{`{
+        <p className="font-medium text-foreground mt-3 mb-1">收到消息：message</p>
+        <pre className="bg-card p-2 rounded overflow-x-auto">{`{
   "type": "message",
   "data": {
     "seq_id": 123,
@@ -225,8 +223,8 @@ function WsProtocolDocs() {
       </div>
 
       <div>
-        <p className="font-medium text-[var(--foreground)] mt-3 mb-1">Bot 状态变化：bot_status</p>
-        <pre className="bg-[var(--card)] p-2 rounded overflow-x-auto">{`{
+        <p className="font-medium text-foreground mt-3 mb-1">Bot 状态变化：bot_status</p>
+        <pre className="bg-card p-2 rounded overflow-x-auto">{`{
   "type": "bot_status",
   "data": { "bot_id": "uuid", "status": "disconnected" }
 }`}</pre>
@@ -234,8 +232,8 @@ function WsProtocolDocs() {
       </div>
 
       <div>
-        <p className="font-medium text-[var(--foreground)] mt-3 mb-1">发送消息（客户端 → 服务端）</p>
-        <pre className="bg-[var(--card)] p-2 rounded overflow-x-auto">{`{
+        <p className="font-medium text-foreground mt-3 mb-1">发送消息（客户端 → 服务端）</p>
+        <pre className="bg-card p-2 rounded overflow-x-auto">{`{
   "type": "send_text",
   "req_id": "自定义请求ID",
   "data": {
@@ -246,8 +244,8 @@ function WsProtocolDocs() {
       </div>
 
       <div>
-        <p className="font-medium text-[var(--foreground)] mt-3 mb-1">发送确认：send_ack</p>
-        <pre className="bg-[var(--card)] p-2 rounded overflow-x-auto">{`{
+        <p className="font-medium text-foreground mt-3 mb-1">发送确认：send_ack</p>
+        <pre className="bg-card p-2 rounded overflow-x-auto">{`{
   "type": "send_ack",
   "data": {
     "req_id": "自定义请求ID",
@@ -259,13 +257,13 @@ function WsProtocolDocs() {
       </div>
 
       <div>
-        <p className="font-medium text-[var(--foreground)] mt-3 mb-1">心跳</p>
-        <p>发送 <code className="text-[var(--primary)]">{`{"type":"ping"}`}</code>，收到 <code className="text-[var(--primary)]">{`{"type":"pong"}`}</code></p>
+        <p className="font-medium text-foreground mt-3 mb-1">心跳</p>
+        <p>发送 <code className="text-primary">{`{"type":"ping"}`}</code>，收到 <code className="text-primary">{`{"type":"pong"}`}</code></p>
       </div>
 
       <div>
-        <p className="font-medium text-[var(--foreground)] mt-3 mb-1">测试命令</p>
-        <pre className="bg-[var(--card)] p-2 rounded overflow-x-auto">node example/ws-test.mjs "ws://host:port/api/ws?key=API_KEY"</pre>
+        <p className="font-medium text-foreground mt-3 mb-1">测试命令</p>
+        <pre className="bg-card p-2 rounded overflow-x-auto">node example/ws-test.mjs "ws://host:port/api/ws?key=API_KEY"</pre>
       </div>
     </div>
   );
@@ -290,10 +288,10 @@ function ChannelRow({ channel, onRefresh }: { channel: any; onRefresh: () => voi
   }
 
   return (
-    <div className="p-3 rounded-lg border border-[var(--border)] bg-[var(--card)] space-y-2">
+    <div className="p-3 rounded-lg border bg-card space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Cable className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
+          <Cable className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="text-sm font-medium">{channel.name}</span>
         </div>
         <div className="flex gap-1 shrink-0">
@@ -301,7 +299,7 @@ function ChannelRow({ channel, onRefresh }: { channel: any; onRefresh: () => voi
             <RotateCw className="w-3.5 h-3.5" />
           </Button>
           <Button variant="ghost" size="sm" onClick={async () => { if (confirm("删除？")) { await api.deleteChannel(channel.id); onRefresh(); } }}>
-            <Trash2 className="w-3.5 h-3.5 text-[var(--destructive)]" />
+            <Trash2 className="w-3.5 h-3.5 text-destructive" />
           </Button>
         </div>
       </div>
@@ -315,11 +313,11 @@ function ChannelRow({ channel, onRefresh }: { channel: any; onRefresh: () => voi
 function CopyRow({ label, value, copied, onCopy }: { label: string; value: string; copied: boolean; onCopy: () => void }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[10px] text-[var(--muted-foreground)] w-16 shrink-0">{label}</span>
-      <code className="flex-1 text-[10px] text-[var(--muted-foreground)] font-mono bg-[var(--background)] border border-[var(--border)] rounded px-2 py-1 truncate select-all">
+      <span className="text-[10px] text-muted-foreground w-16 shrink-0">{label}</span>
+      <code className="flex-1 text-[10px] text-muted-foreground font-mono bg-background border rounded px-2 py-1 truncate select-all">
         {value}
       </code>
-      <button onClick={onCopy} className="cursor-pointer text-[var(--muted-foreground)] hover:text-[var(--foreground)] shrink-0">
+      <button onClick={onCopy} className="cursor-pointer text-muted-foreground hover:text-foreground shrink-0">
         {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
       </button>
     </div>

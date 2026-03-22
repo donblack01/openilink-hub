@@ -1,17 +1,20 @@
 import { cn } from "../../lib/utils";
 
 const variants = {
-  default: "bg-[var(--primary)] text-[var(--primary-foreground)]",
-  secondary: "bg-[var(--secondary)] text-[var(--secondary-foreground)]",
-  destructive: "bg-[var(--destructive)] text-white",
-  outline: "border border-[var(--border)] text-[var(--muted-foreground)]",
+  default: "bg-primary text-primary-foreground shadow-sm hover:bg-primary/80",
+  secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+  destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/80",
+  outline: "border text-foreground",
 };
 
 export function Badge({ variant = "default", className, children }: {
   variant?: keyof typeof variants; className?: string; children: React.ReactNode;
 }) {
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium", variants[variant], className)}>
+    <span className={cn(
+      "inline-flex items-center rounded-md border border-transparent px-2.5 py-0.5 text-xs font-medium transition-colors",
+      variants[variant], className
+    )}>
       {children}
     </span>
   );
