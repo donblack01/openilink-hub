@@ -134,7 +134,8 @@ func (s *Server) Handler() http.Handler {
 
 	// --- Webhook plugins (authenticated actions) ---
 	protected.HandleFunc("POST /api/webhook-plugins/submit", s.handleSubmitPlugin)
-	protected.HandleFunc("POST /api/webhook-plugins/debug", s.handleDebugPlugin)
+	protected.HandleFunc("POST /api/webhook-plugins/debug/request", s.handleDebugRequest)
+	protected.HandleFunc("POST /api/webhook-plugins/debug/response", s.handleDebugResponse)
 	protected.HandleFunc("POST /api/webhook-plugins/{id}/install", s.handleInstallPlugin)
 	protected.HandleFunc("POST /api/webhook-plugins/{id}/install-to-channel", s.handleInstallPluginToChannel)
 

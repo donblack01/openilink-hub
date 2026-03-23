@@ -63,15 +63,59 @@ export function PluginDebugPage() {
   async function handleRun() {
     setRunning(true);
     setResult(null);
+    const mockMessage = { sender, content, msg_type: msgType };
+    const allLogs: string[] = [];
+
     try {
-      const r = await api.debugPlugin({
-        script,
-        webhook_url: webhookUrl,
-        mock_message: { sender, content, msg_type: msgType },
+      // Step 1: Execute onRequest on backend (sandbox)
+      const step1 = await api.debugRequest({ script, webhook_url: webhookUrl, mock_message: mockMessage });
+      allLogs.push(...(step1.logs || []));
+
+      if (step1.error || step1.skipped) {
+        setResult({ ...step1, logs: allLogs });
+        setRunning(false);
+        return;
+      }
+
+      // Step 2: Frontend sends HTTP request
+      let httpResponse: any = null;
+      if (step1.request) {
+        allLogs.push(`→ 前端发送 ${step1.request.method} ${step1.request.url}`);
+        try {
+          const res = await fetch(step1.request.url, {
+            method: step1.request.method,
+            headers: step1.request.headers,
+            body: step1.request.body,
+          });
+          const body = await res.text();
+          const headers: Record<string, string> = {};
+          res.headers.forEach((v, k) => { headers[k] = v; });
+          httpResponse = { status: res.status, headers, body };
+          allLogs.push(`✓ 响应 ${res.status} (${body.length} 字节)`);
+        } catch (err: any) {
+          allLogs.push(`✕ HTTP 请求失败: ${err.message}`);
+        }
+      }
+
+      // Step 3: Execute onResponse on backend (sandbox)
+      let step3: any = null;
+      if (httpResponse) {
+        step3 = await api.debugResponse({ script, mock_message: mockMessage, response: httpResponse });
+        allLogs.push(...(step3.logs || []));
+      }
+
+      setResult({
+        request: step1.request,
+        response: httpResponse,
+        replies: [...(step1.replies || []), ...(step3?.replies || [])],
+        skipped: false,
+        error: step3?.error || "",
+        logs: allLogs,
+        permissions: step1.permissions,
       });
-      setResult(r);
     } catch (err: any) {
-      setResult({ error: err.message, logs: [] });
+      allLogs.push(`✕ 错误: ${err.message}`);
+      setResult({ error: err.message, logs: allLogs });
     }
     setRunning(false);
   }

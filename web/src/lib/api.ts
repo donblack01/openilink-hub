@@ -93,8 +93,10 @@ export const api = {
   getPlugin: (id: string) => request<any>(`/api/webhook-plugins/${id}`),
   submitPlugin: (data: { github_url?: string; script?: string }) => request<any>("/api/webhook-plugins/submit", { method: "POST", body: JSON.stringify(data) }),
   installPlugin: (id: string) => request<any>(`/api/webhook-plugins/${id}/install`, { method: "POST" }),
-  debugPlugin: (data: { script: string; webhook_url?: string; mock_message?: any }) =>
-    request<any>("/api/webhook-plugins/debug", { method: "POST", body: JSON.stringify(data) }),
+  debugRequest: (data: { script: string; webhook_url?: string; mock_message?: any }) =>
+    request<any>("/api/webhook-plugins/debug/request", { method: "POST", body: JSON.stringify(data) }),
+  debugResponse: (data: { script: string; mock_message?: any; response: any }) =>
+    request<any>("/api/webhook-plugins/debug/response", { method: "POST", body: JSON.stringify(data) }),
   installPluginToChannel: (id: string, botId: string, channelId: string) =>
     request<any>(`/api/webhook-plugins/${id}/install-to-channel`, { method: "POST", body: JSON.stringify({ bot_id: botId, channel_id: channelId }) }),
   reviewPlugin: (id: string, status: string, reason?: string) =>

@@ -319,9 +319,9 @@ func (s *Server) handleInstallPluginToChannel(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// POST /api/webhook-plugins/debug
-// Body: {"script": "...", "webhook_url": "https://...", "mock_message": {...}}
-func (s *Server) handleDebugPlugin(w http.ResponseWriter, r *http.Request) {
+// POST /api/webhook-plugins/debug/request
+// Executes onRequest phase only, returns modified request for frontend to send.
+func (s *Server) handleDebugRequest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Script      string `json:"script"`
 		WebhookURL  string `json:"webhook_url"`
@@ -336,13 +336,38 @@ func (s *Server) handleDebugPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	msg := sink.MockPayload(
-		req.MockMessage.Sender,
-		req.MockMessage.Content,
-		req.MockMessage.MsgType,
-	)
+	msg := sink.MockPayload(req.MockMessage.Sender, req.MockMessage.Content, req.MockMessage.MsgType)
+	result := sink.DebugRequest(req.Script, msg, req.WebhookURL)
 
-	result := sink.DebugScript(req.Script, msg, req.WebhookURL)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// POST /api/webhook-plugins/debug/response
+// Executes onResponse phase with the HTTP response from frontend.
+func (s *Server) handleDebugResponse(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Script      string `json:"script"`
+		MockMessage struct {
+			Sender  string `json:"sender"`
+			Content string `json:"content"`
+			MsgType string `json:"msg_type"`
+		} `json:"mock_message"`
+		Response struct {
+			Status  int               `json:"status"`
+			Headers map[string]string `json:"headers"`
+			Body    string            `json:"body"`
+		} `json:"response"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Script == "" {
+		jsonError(w, "script required", http.StatusBadRequest)
+		return
+	}
+
+	msg := sink.MockPayload(req.MockMessage.Sender, req.MockMessage.Content, req.MockMessage.MsgType)
+	result := sink.DebugResponse(req.Script, msg, &sink.ResData{
+		Status: req.Response.Status, Headers: req.Response.Headers, Body: req.Response.Body,
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(result)

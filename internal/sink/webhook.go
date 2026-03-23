@@ -63,9 +63,9 @@ type DebugPerms struct {
 	Connect string   `json:"connect"`
 }
 
-// DebugScript executes a script with mock data end-to-end:
-// parse → onRequest → HTTP request → onResponse → replies.
-func DebugScript(script string, mockMsg webhookPayload, webhookURL string) *DebugResult {
+// DebugRequest executes only the onRequest phase: parse + @match + onRequest.
+// Returns the modified request for the frontend to send.
+func DebugRequest(script string, mockMsg webhookPayload, webhookURL string) *DebugResult {
 	result := &DebugResult{Logs: []string{}, Replies: []string{}}
 
 	grants, matchTypes, connectDomains := parseScriptPerms(script)
@@ -77,7 +77,6 @@ func DebugScript(script string, mockMsg webhookPayload, webhookURL string) *Debu
 		result.Perms.Grants = append(result.Perms.Grants, k)
 	}
 
-	// @match check
 	if !matchTypes["*"] && !matchTypes[mockMsg.MsgType] {
 		result.Skipped = true
 		result.Logs = append(result.Logs, fmt.Sprintf("@match 过滤：消息类型 %q 不匹配 %s，跳过", mockMsg.MsgType, joinKeys(matchTypes)))
@@ -85,37 +84,30 @@ func DebugScript(script string, mockMsg webhookPayload, webhookURL string) *Debu
 	}
 	result.Logs = append(result.Logs, "✓ @match 通过")
 
-	// Build initial request
 	body, _ := json.Marshal(mockMsg)
 	if webhookURL == "" {
 		webhookURL = "https://httpbin.org/post"
 	}
-	req := &reqData{
-		URL:     webhookURL,
-		Method:  "POST",
-		Headers: map[string]string{"Content-Type": "application/json"},
-		Body:    string(body),
-	}
+	req := &reqData{URL: webhookURL, Method: "POST", Headers: map[string]string{"Content-Type": "application/json"}, Body: string(body)}
 
-	// Full script execution (includes onRequest + HTTP + onResponse)
-	w := &Webhook{}
-	outReq, outRes, replies, skipped, err := w.runScript(script, mockMsg, req, "debug")
+	// Run onRequest only (runScript also runs onResponse + HTTP, but we use a trick:
+	// we call the script phases manually)
+	vm, outReq, replies, skipped, err := runOnRequest(script, mockMsg, req)
+	_ = vm // keep for onResponse later
 	if err != nil {
 		result.Error = err.Error()
 		result.Logs = append(result.Logs, "✕ 脚本错误: "+err.Error())
 		return result
 	}
 	result.Logs = append(result.Logs, "✓ onRequest 执行完成")
-
-	result.Skipped = skipped
 	result.Replies = replies
+	result.Skipped = skipped
 
 	if skipped {
-		result.Logs = append(result.Logs, "⚠ skip() 被调用，跳过 HTTP 请求")
+		result.Logs = append(result.Logs, "⚠ skip() 被调用")
 		return result
 	}
 
-	// @connect check
 	if !connectDomains["*"] && outReq != nil && outReq.URL != req.URL {
 		if !isDomainAllowed(outReq.URL, connectDomains) {
 			result.Error = fmt.Sprintf("@connect 拦截: %s 不在白名单", outReq.URL)
@@ -126,21 +118,121 @@ func DebugScript(script string, mockMsg webhookPayload, webhookURL string) *Debu
 
 	result.Request = outReq
 	if outReq != nil {
-		result.Logs = append(result.Logs, fmt.Sprintf("✓ HTTP %s %s (%d 字节)", outReq.Method, outReq.URL, len(outReq.Body)))
+		result.Logs = append(result.Logs, fmt.Sprintf("✓ 请求: %s %s (%d 字节)", outReq.Method, outReq.URL, len(outReq.Body)))
+	}
+	return result
+}
+
+// DebugResponse executes only the onResponse phase with the HTTP response from frontend.
+func DebugResponse(script string, mockMsg webhookPayload, response *resData) *DebugResult {
+	result := &DebugResult{Logs: []string{}, Replies: []string{}}
+
+	vm := goja.New()
+	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
+	vm.SetMaxCallStackSize(scriptMaxCallStack)
+	for _, name := range []string{"eval", "Function"} {
+		vm.GlobalObject().Delete(name)
 	}
 
-	if outRes != nil {
-		result.Response = outRes
-		result.Logs = append(result.Logs, fmt.Sprintf("✓ 响应 %d (%d 字节)", outRes.Status, len(outRes.Body)))
-	} else {
-		result.Logs = append(result.Logs, "✕ HTTP 请求失败（无响应）")
+	var replies []string
+	vm.Set("ctx", map[string]any{"msg": mockMsg})
+	vm.Set("reply", func(text string) {
+		if len(replies) < scriptMaxReplies {
+			replies = append(replies, text)
+		}
+	})
+	vm.Set("skip", func() {})
+
+	timer := time.AfterFunc(scriptTimeout, func() { vm.Interrupt("timeout") })
+	_, err := vm.RunString(script)
+	timer.Stop()
+	vm.ClearInterrupt()
+	if err != nil {
+		result.Error = err.Error()
+		return result
 	}
 
+	if fn := vm.Get("onResponse"); fn != nil && !goja.IsUndefined(fn) {
+		if callable, ok := goja.AssertFunction(fn); ok {
+			ctxObj := vm.Get("ctx").ToObject(vm)
+			ctxObj.Set("res", map[string]any{
+				"status":  response.Status,
+				"headers": response.Headers,
+				"body":    response.Body,
+			})
+			if _, err := runScriptWithTimeout(vm, callable, vm.Get("ctx")); err != nil {
+				result.Error = err.Error()
+				result.Logs = append(result.Logs, "✕ onResponse 错误: "+err.Error())
+				return result
+			}
+		}
+	}
+
+	result.Replies = replies
+	result.Logs = append(result.Logs, "✓ onResponse 执行完成")
 	if len(replies) > 0 {
 		result.Logs = append(result.Logs, fmt.Sprintf("✓ reply() 调用 %d 次", len(replies)))
 	}
-
 	return result
+}
+
+// runOnRequest executes only the onRequest phase of a script.
+func runOnRequest(script string, msg webhookPayload, req *reqData) (*goja.Runtime, *reqData, []string, bool, error) {
+	grants, _, _ := parseScriptPerms(script)
+
+	vm := goja.New()
+	vm.SetFieldNameMapper(goja.TagFieldNameMapper("json", true))
+	vm.SetMaxCallStackSize(scriptMaxCallStack)
+	for _, name := range []string{"eval", "Function"} {
+		vm.GlobalObject().Delete(name)
+	}
+
+	ctx := map[string]any{
+		"msg": msg,
+		"req": map[string]any{"url": req.URL, "method": req.Method, "headers": req.Headers, "body": req.Body},
+	}
+	vm.Set("ctx", ctx)
+
+	var replies []string
+	skipped := false
+
+	if grants["reply"] || (len(grants) == 0 && !grants["none"]) {
+		vm.Set("reply", func(text string) { if len(replies) < scriptMaxReplies { replies = append(replies, text) } })
+	} else {
+		vm.Set("reply", func(text string) { panic(vm.NewGoError(fmt.Errorf("reply() not granted"))) })
+	}
+	if grants["skip"] || (len(grants) == 0 && !grants["none"]) {
+		vm.Set("skip", func() { skipped = true })
+	} else {
+		vm.Set("skip", func() { panic(vm.NewGoError(fmt.Errorf("skip() not granted"))) })
+	}
+	if grants["none"] {
+		vm.Set("reply", func(text string) { panic(vm.NewGoError(fmt.Errorf("blocked by @grant none"))) })
+		vm.Set("skip", func() { panic(vm.NewGoError(fmt.Errorf("blocked by @grant none"))) })
+	}
+
+	timer := time.AfterFunc(scriptTimeout, func() { vm.Interrupt("timeout") })
+	_, err := vm.RunString(script)
+	timer.Stop()
+	vm.ClearInterrupt()
+	if err != nil {
+		return vm, nil, nil, false, err
+	}
+
+	if fn := vm.Get("onRequest"); fn != nil && !goja.IsUndefined(fn) {
+		if callable, ok := goja.AssertFunction(fn); ok {
+			if _, err := runScriptWithTimeout(vm, callable, vm.Get("ctx")); err != nil {
+				return vm, nil, nil, false, err
+			}
+		}
+	}
+
+	if skipped {
+		return vm, nil, replies, true, nil
+	}
+
+	outReq := extractReqFromCtx(vm.Get("ctx").Export(), req)
+	return vm, outReq, replies, false, nil
 }
 
 // MockPayload creates a test webhookPayload for debugging.
@@ -465,6 +557,9 @@ type reqData struct {
 	Headers map[string]string `json:"headers"`
 	Body    string            `json:"body"`
 }
+
+// ResData holds HTTP response data (exported for debug API).
+type ResData = resData
 
 type resData struct {
 	Status  int               `json:"status"`
