@@ -28,9 +28,10 @@ type AIConfig struct {
 
 // WebhookConfig holds webhook push configuration for a channel.
 type WebhookConfig struct {
-	URL    string       `json:"url,omitempty"`
-	Auth   *WebhookAuth `json:"auth,omitempty"`
-	Script string       `json:"script,omitempty"` // JS middleware: receives (msg, req), returns req or null
+	URL      string       `json:"url,omitempty"`
+	Auth     *WebhookAuth `json:"auth,omitempty"`
+	PluginID string       `json:"plugin_id,omitempty"` // reference to approved plugin (takes precedence over Script)
+	Script   string       `json:"script,omitempty"`    // inline JS middleware (fallback if no plugin_id)
 }
 
 // WebhookAuth defines structured auth for webhooks.

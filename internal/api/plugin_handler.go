@@ -231,6 +231,58 @@ func (s *Server) handleInstallPlugin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// POST /api/webhook-plugins/{id}/install-to-channel
+// Body: {"bot_id": "xxx", "channel_id": "xxx"}
+func (s *Server) handleInstallPluginToChannel(w http.ResponseWriter, r *http.Request) {
+	pluginID := r.PathValue("id")
+	userID := auth.UserIDFromContext(r.Context())
+
+	plugin, err := s.DB.GetPlugin(pluginID)
+	if err != nil || plugin.Status != "approved" {
+		jsonError(w, "plugin not found or not approved", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		BotID     string `json:"bot_id"`
+		ChannelID string `json:"channel_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.BotID == "" || req.ChannelID == "" {
+		jsonError(w, "bot_id and channel_id required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify ownership
+	bot, err := s.DB.GetBot(req.BotID)
+	if err != nil || bot.UserID != userID {
+		jsonError(w, "bot not found", http.StatusNotFound)
+		return
+	}
+	ch, err := s.DB.GetChannel(req.ChannelID)
+	if err != nil || ch.BotID != req.BotID {
+		jsonError(w, "channel not found", http.StatusNotFound)
+		return
+	}
+
+	// Set plugin_id in webhook config, keep existing URL/auth
+	ch.WebhookConfig.PluginID = pluginID
+	ch.WebhookConfig.Script = "" // clear inline script when using plugin
+	if err := s.DB.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig, &ch.WebhookConfig, ch.Enabled); err != nil {
+		jsonError(w, "update channel failed", http.StatusInternalServerError)
+		return
+	}
+
+	s.DB.RecordPluginInstall(pluginID, userID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"ok":             true,
+		"plugin_id":      plugin.ID,
+		"plugin_name":    plugin.Name,
+		"plugin_version": plugin.Version,
+	})
+}
+
 // --- Helpers ---
 
 var githubBlobRe = regexp.MustCompile(`^https?://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$`)

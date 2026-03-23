@@ -126,6 +126,7 @@ func (s *Server) Handler() http.Handler {
 	// --- Webhook plugins (authenticated actions) ---
 	protected.HandleFunc("POST /api/webhook-plugins/submit", s.handleSubmitPlugin)
 	protected.HandleFunc("POST /api/webhook-plugins/{id}/install", s.handleInstallPlugin)
+	protected.HandleFunc("POST /api/webhook-plugins/{id}/install-to-channel", s.handleInstallPluginToChannel)
 
 	// --- Admin: dashboard ---
 	protected.HandleFunc("GET /api/admin/stats", s.requireAdmin(s.handleAdminStats))

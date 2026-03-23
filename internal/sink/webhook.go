@@ -66,9 +66,22 @@ func (s *Webhook) Handle(d Delivery) {
 	var replies []string
 	skipped := false
 
-	if cfg.Script != "" {
+	// Resolve script: plugin_id takes precedence over inline script
+	script := cfg.Script
+	if cfg.PluginID != "" {
+		plugin, err := s.DB.GetPlugin(cfg.PluginID)
+		if err != nil {
+			slog.Error("webhook plugin not found", "channel", d.Channel.ID, "plugin", cfg.PluginID, "err", err)
+		} else if plugin.Status != "approved" {
+			slog.Warn("webhook plugin not approved", "channel", d.Channel.ID, "plugin", cfg.PluginID, "status", plugin.Status)
+		} else {
+			script = plugin.Script
+		}
+	}
+
+	if script != "" {
 		var err error
-		req, res, replies, skipped, err = s.runScript(cfg.Script, msg, req, d.Channel.ID)
+		req, res, replies, skipped, err = s.runScript(script, msg, req, d.Channel.ID)
 		if err != nil {
 			slog.Error("webhook script error", "channel", d.Channel.ID, "err", err)
 			return

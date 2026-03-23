@@ -2901,3 +2901,164 @@ func TestWebhookPluginListSortedByInstallCount(t *testing.T) {
 		t.Errorf("second should be PluginA (1 install), got %v", second["name"])
 	}
 }
+
+func TestWebhookPluginInstallToChannel(t *testing.T) {
+	env := setup(t)
+	defer env.close()
+
+	env.register("installchadmin", "password123")
+	env.db.Exec("UPDATE users SET role = 'admin' WHERE username = 'installchadmin'")
+
+	// Submit + approve plugin
+	pluginScript := `// ==WebhookPlugin==
+// @name         ChannelPlugin
+// @namespace    test
+// @version      1.0.0
+// @description  Test plugin for channel install
+// @author       test
+// @match        text
+// @connect      *
+// @grant        reply
+// ==/WebhookPlugin==
+
+function onRequest(ctx) {
+	ctx.req.headers["X-From-Plugin"] = "channel-plugin";
+	ctx.req.body = JSON.stringify({plugged: true, text: ctx.msg.content});
+}
+
+function onResponse(ctx) {
+	var data = JSON.parse(ctx.res.body);
+	if (data.reply) reply(data.reply);
+}`
+
+	_, result := env.postCode("/api/webhook-plugins/submit", map[string]string{"script": pluginScript})
+	pluginID := result["id"].(string)
+	env.put("/api/admin/webhook-plugins/"+pluginID+"/review", map[string]string{"status": "approved"})
+
+	// Create bot + channel
+	botObj := env.createBotForUser("PlugChBot")
+	env.mgr.StartBot(context.Background(), botObj)
+	ch, _ := env.db.CreateChannel(botObj.ID, "PlugCh", "", nil, nil)
+
+	// Set up webhook receiver
+	var received []map[string]any
+	hookSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		received = append(received, body)
+		if r.Header.Get("X-From-Plugin") != "channel-plugin" {
+			t.Errorf("missing plugin header")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"reply": "plugin reply"})
+	}))
+	defer hookSrv.Close()
+
+	// Set webhook URL on channel
+	env.db.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig,
+		&database.WebhookConfig{URL: hookSrv.URL}, true)
+
+	// Install plugin to channel via API
+	code, installResult := env.postCode("/api/webhook-plugins/"+pluginID+"/install-to-channel", map[string]string{
+		"bot_id": botObj.ID, "channel_id": ch.ID,
+	})
+	assertCode(t, "install to channel", code, 200)
+	if installResult["plugin_version"] != "1.0.0" {
+		t.Errorf("version = %v", installResult["plugin_version"])
+	}
+
+	// Verify channel now has plugin_id
+	updatedCh, _ := env.db.GetChannel(ch.ID)
+	if updatedCh.WebhookConfig.PluginID != pluginID {
+		t.Errorf("channel plugin_id = %q, want %q", updatedCh.WebhookConfig.PluginID, pluginID)
+	}
+	if updatedCh.WebhookConfig.Script != "" {
+		t.Error("inline script should be cleared when plugin is installed")
+	}
+
+	// Trigger webhook via inbound message
+	inst, _ := env.mgr.GetInstance(botObj.ID)
+	mock := inst.Provider.(*mockProvider.Provider)
+	mock.SimulateInbound(provider.InboundMessage{
+		ExternalID: "plugch-1", Sender: "bob@wx", Timestamp: time.Now().UnixMilli(),
+		Items: []provider.MessageItem{{Type: "text", Text: "hello via plugin"}},
+	})
+	time.Sleep(500 * time.Millisecond)
+
+	// Verify plugin script was executed (resolved from DB, not inline)
+	if len(received) != 1 {
+		t.Fatalf("webhook: want 1 delivery, got %d", len(received))
+	}
+	if received[0]["plugged"] != true {
+		t.Error("plugin onRequest did not run")
+	}
+
+	// Verify reply
+	sent := mock.SentMessages()
+	replyFound := false
+	for _, m := range sent {
+		if m.Text == "plugin reply" {
+			replyFound = true
+		}
+	}
+	if !replyFound {
+		t.Error("plugin onResponse reply not sent")
+	}
+}
+
+func TestWebhookPluginVersionUpdate(t *testing.T) {
+	env := setup(t)
+	defer env.close()
+
+	env.register("veradmin", "password123")
+	env.db.Exec("UPDATE users SET role = 'admin' WHERE username = 'veradmin'")
+
+	// Submit v1
+	_, r1 := env.postCode("/api/webhook-plugins/submit", map[string]string{
+		"script": "// ==WebhookPlugin==\n// @name VersionedPlugin\n// @namespace test\n// @version 1.0.0\n// ==/WebhookPlugin==\nfunction onRequest(ctx) { ctx.req.headers['X-V'] = '1'; }",
+	})
+	id1 := r1["id"].(string)
+	env.put("/api/admin/webhook-plugins/"+id1+"/review", map[string]string{"status": "approved"})
+
+	// Submit v2 (same namespace/name)
+	_, r2 := env.postCode("/api/webhook-plugins/submit", map[string]string{
+		"script": "// ==WebhookPlugin==\n// @name VersionedPlugin\n// @namespace test\n// @version 2.0.0\n// ==/WebhookPlugin==\nfunction onRequest(ctx) { ctx.req.headers['X-V'] = '2'; }",
+	})
+	id2 := r2["id"].(string)
+	env.put("/api/admin/webhook-plugins/"+id2+"/review", map[string]string{"status": "approved"})
+
+	// Both versions exist as separate plugins
+	if id1 == id2 {
+		t.Error("versions should have different IDs")
+	}
+
+	// Get details
+	_, d1 := env.get("/api/webhook-plugins/" + id1)
+	_, d2 := env.get("/api/webhook-plugins/" + id2)
+	if d1["version"] != "1.0.0" {
+		t.Errorf("v1 = %v", d1["version"])
+	}
+	if d2["version"] != "2.0.0" {
+		t.Errorf("v2 = %v", d2["version"])
+	}
+
+	// Channel can pin to v1
+	botObj := env.createBotForUser("VerBot")
+	ch, _ := env.db.CreateChannel(botObj.ID, "VerCh", "", nil, nil)
+	env.db.UpdateChannel(ch.ID, ch.Name, ch.Handle, &ch.FilterRule, &ch.AIConfig,
+		&database.WebhookConfig{URL: "http://localhost", PluginID: id1}, true)
+
+	ch1, _ := env.db.GetChannel(ch.ID)
+	if ch1.WebhookConfig.PluginID != id1 {
+		t.Errorf("pinned to %s, want %s", ch1.WebhookConfig.PluginID, id1)
+	}
+
+	// Upgrade to v2
+	env.postCode("/api/webhook-plugins/"+id2+"/install-to-channel", map[string]string{
+		"bot_id": botObj.ID, "channel_id": ch.ID,
+	})
+	ch2, _ := env.db.GetChannel(ch.ID)
+	if ch2.WebhookConfig.PluginID != id2 {
+		t.Errorf("after upgrade: %s, want %s", ch2.WebhookConfig.PluginID, id2)
+	}
+}
