@@ -94,6 +94,17 @@ func (db *DB) CreatePlugin(p *Plugin) (*Plugin, error) {
 	return p, nil
 }
 
+// FindPluginOwner returns the user ID of whoever owns a plugin name (any status).
+// Returns empty string if no plugin with this name exists.
+func (db *DB) FindPluginOwner(name string) (string, error) {
+	var owner string
+	err := db.QueryRow("SELECT submitted_by FROM plugins WHERE name = $1 LIMIT 1", name).Scan(&owner)
+	if err != nil {
+		return "", err
+	}
+	return owner, nil
+}
+
 // FindPendingPlugin finds an existing pending plugin by submitter + name.
 func (db *DB) FindPendingPlugin(submittedBy, name string) (*Plugin, error) {
 	return scanPlugin(db.QueryRow("SELECT "+pluginSelectCols+pluginFromJoin+

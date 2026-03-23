@@ -73,6 +73,12 @@ func (s *Server) handleSubmitPlugin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check name ownership: if another user already has a plugin with this name, reject
+	if owner, _ := s.DB.FindPluginOwner(meta.Name); owner != "" && owner != userID {
+		jsonError(w, "plugin name already taken by another user", http.StatusConflict)
+		return
+	}
+
 	configSchema, _ := json.Marshal(meta.Config)
 
 	newPlugin := &database.Plugin{

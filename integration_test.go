@@ -3104,3 +3104,28 @@ func TestWebhookPluginResubmitOverwritesPending(t *testing.T) {
 		t.Errorf("expected 1 pending, got %d", len(pending))
 	}
 }
+
+func TestWebhookPluginNameOwnership(t *testing.T) {
+	env := setup(t)
+	defer env.close()
+
+	// User1 submits a plugin
+	env.register("owner1", "password123")
+	code, _ := env.postCode("/api/webhook-plugins/submit", map[string]string{
+		"script": "// @name UniquePlugin\nfunction onRequest(ctx) {}",
+	})
+	assertCode(t, "owner1 submit", code, 200)
+	env.post("/api/auth/logout", nil)
+
+	// User2 tries same name → 409
+	env.register("owner2", "password123")
+	code, result := env.postCode("/api/webhook-plugins/submit", map[string]string{
+		"script": "// @name UniquePlugin\nfunction onRequest(ctx) {}",
+	})
+	if code != 409 {
+		t.Errorf("owner2 submit same name: got %d, want 409", code)
+	}
+	if result["error"] == nil || !strings.Contains(result["error"].(string), "taken") {
+		t.Errorf("error = %v", result["error"])
+	}
+}
