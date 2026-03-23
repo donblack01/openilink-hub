@@ -10,6 +10,7 @@ import { BotDetailPage } from "./pages/bot-detail";
 import { SettingsPage } from "./pages/settings";
 import { PluginsPage } from "./pages/plugins";
 import { ChannelDetailPage } from "./pages/channel-detail";
+import { AdminPage } from "./pages/admin";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -26,6 +27,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="bot/:id/channel/:cid" element={<ChannelDetailPage />} />
           <Route path="webhook-plugins" element={<PluginsPage embedded />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="admin" element={<AdminPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
