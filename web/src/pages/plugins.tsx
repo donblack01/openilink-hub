@@ -5,7 +5,7 @@ import { Input } from "../components/ui/input";
 import { Card } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { api } from "../lib/api";
-import { Github, Download, Check, X, Trash2, Send, ArrowLeft, ExternalLink, BookOpen } from "lucide-react";
+import { Github, Download, Check, X, Trash2, Send, ArrowLeft, ExternalLink, BookOpen, Bot, Puzzle, Shield } from "lucide-react";
 
 const statusMap: Record<string, { label: string; variant: "default" | "outline" | "destructive" }> = {
   approved: { label: "已通过", variant: "default" },
@@ -19,10 +19,9 @@ export function PluginsPage() {
   const [user, setUser] = useState<any>(null);
 
   async function load() {
-    try { setUser(await api.me()); } catch { /* not logged in */ }
+    try { setUser(await api.me()); } catch {}
     try {
-      const status = tab === "review" ? "pending" : "approved";
-      setPlugins(await api.listPlugins(status) || []);
+      setPlugins(await api.listPlugins(tab === "review" ? "pending" : "approved") || []);
     } catch { setPlugins([]); }
   }
 
@@ -33,48 +32,86 @@ export function PluginsPage() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Header */}
       <header className="border-b px-6 py-3 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
-          <Link to="/" className="text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
+          <Link to="/" className="text-muted-foreground hover:text-foreground"><ArrowLeft className="w-4 h-4" /></Link>
+          <Puzzle className="w-4 h-4 text-primary" />
           <span className="font-semibold text-sm">Webhook 插件市场</span>
         </div>
         <div className="flex items-center gap-2">
-          <a href="/api/webhook-plugins/skill.md" target="_blank" rel="noopener">
-            <Button variant="ghost" size="sm" className="text-xs"><BookOpen className="w-3.5 h-3.5 mr-1" /> 开发文档</Button>
-          </a>
-          {!isLoggedIn && (
-            <Link to="/login"><Button size="sm" className="text-xs">登录</Button></Link>
-          )}
-          {isLoggedIn && (
-            <span className="text-xs text-muted-foreground">{user.username}</span>
-          )}
+          {!isLoggedIn && <Link to="/login"><Button size="sm" className="text-xs">登录</Button></Link>}
+          {isLoggedIn && <span className="text-xs text-muted-foreground">{user.username}</span>}
         </div>
       </header>
 
-      <main className="flex-1 p-6 max-w-4xl mx-auto w-full space-y-4">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            社区驱动的 Webhook 插件，一键安装到你的渠道。代码公开审核，安全沙箱执行。
-          </p>
-          <div className="flex border rounded-lg overflow-hidden shrink-0">
-            <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "marketplace" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setTab("marketplace")}>市场</button>
-            {isLoggedIn && (
-              <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "submit" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setTab("submit")}>提交插件</button>
-            )}
-            {isAdmin && (
-              <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "review" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setTab("review")}>审核</button>
-            )}
+      <main className="flex-1 p-6 max-w-4xl mx-auto w-full space-y-5">
+        {/* Hero banner */}
+        <div className="rounded-xl border bg-card p-5 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h1 className="text-base font-semibold">社区驱动的 Webhook 插件</h1>
+              <p className="text-xs text-muted-foreground mt-1">
+                一键安装到你的渠道，自动转发消息到飞书、Slack、钉钉等服务。所有插件代码公开审核，在安全沙箱中执行。
+              </p>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              {isLoggedIn && (
+                <Button variant="outline" size="sm" className="text-xs" onClick={() => setTab("submit")}>
+                  <Send className="w-3 h-3 mr-1" /> 提交插件
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* AI development callout */}
+          <div className="flex items-start gap-3 p-3 rounded-lg bg-primary/5 border border-primary/20">
+            <Bot className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+            <div>
+              <p className="text-xs font-medium">使用 AI 编写插件</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                将以下链接发送给你的 AI 助手（Claude、ChatGPT 等），它可以直接阅读并为你生成符合规范的插件代码：
+              </p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <code className="text-[10px] font-mono bg-background border rounded px-2 py-1 select-all">
+                  {location.origin}/api/webhook-plugins/skill.md
+                </code>
+                <CopyButton value={`${location.origin}/api/webhook-plugins/skill.md`} />
+                <a href="/api/webhook-plugins/skill.md" target="_blank" rel="noopener" className="text-[10px] text-primary hover:underline flex items-center gap-0.5">
+                  <BookOpen className="w-3 h-3" /> 预览文档
+                </a>
+              </div>
+            </div>
           </div>
         </div>
 
+        {/* Tabs */}
+        <div className="flex border rounded-lg overflow-hidden w-fit">
+          <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "marketplace" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setTab("marketplace")}>
+            市场 {plugins.length > 0 && tab === "marketplace" ? `(${plugins.length})` : ""}
+          </button>
+          {isLoggedIn && (
+            <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "submit" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setTab("submit")}>提交插件</button>
+          )}
+          {isAdmin && (
+            <button className={`px-3 py-1 text-xs cursor-pointer ${tab === "review" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setTab("review")}>
+              审核 {plugins.length > 0 && tab === "review" ? `(${plugins.length})` : ""}
+            </button>
+          )}
+        </div>
+
+        {/* Content */}
         {tab === "marketplace" && (
           <div className="space-y-3">
             {plugins.length === 0 && (
-              <div className="text-center py-12 space-y-2">
-                <p className="text-sm text-muted-foreground">暂无插件</p>
-                {isLoggedIn && <p className="text-xs text-muted-foreground">成为第一个贡献者，<button className="text-primary hover:underline cursor-pointer" onClick={() => setTab("submit")}>提交你的插件</button></p>}
+              <div className="text-center py-16 space-y-3">
+                <Puzzle className="w-10 h-10 mx-auto text-muted-foreground/50" />
+                <p className="text-sm text-muted-foreground">暂无已审核的插件</p>
+                {isLoggedIn && (
+                  <Button variant="outline" size="sm" className="text-xs" onClick={() => setTab("submit")}>
+                    成为第一个贡献者
+                  </Button>
+                )}
               </div>
             )}
             {plugins.map((p) => <PluginCard key={p.id} plugin={p} onRefresh={load} isAdmin={isAdmin} isLoggedIn={isLoggedIn} mode="marketplace" />)}
@@ -85,12 +122,32 @@ export function PluginsPage() {
 
         {tab === "review" && (
           <div className="space-y-3">
-            {plugins.length === 0 && <p className="text-sm text-muted-foreground text-center py-8">没有待审核的插件</p>}
+            {plugins.length === 0 && (
+              <div className="text-center py-12">
+                <Shield className="w-8 h-8 mx-auto text-muted-foreground/50 mb-2" />
+                <p className="text-sm text-muted-foreground">没有待审核的插件</p>
+              </div>
+            )}
             {plugins.map((p) => <PluginCard key={p.id} plugin={p} onRefresh={load} isAdmin={true} isLoggedIn={true} mode="review" />)}
           </div>
         )}
       </main>
+
+      <footer className="border-t py-3 text-center text-[10px] text-muted-foreground">
+        <a href="https://github.com/openilink/openilink-hub" target="_blank" rel="noopener" className="hover:text-primary">OpenILink Hub</a>
+        {" · "}Webhook 插件运行在安全沙箱中（5s 超时 · 禁止系统访问 · 管理员审核）
+      </footer>
     </div>
+  );
+}
+
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button onClick={() => { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      className="cursor-pointer text-muted-foreground hover:text-foreground">
+      {copied ? <Check className="w-3 h-3 text-primary" /> : <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>}
+    </button>
   );
 }
 
@@ -103,7 +160,7 @@ function PluginCard({ plugin, onRefresh, isAdmin, isLoggedIn, mode }: {
   async function handleInstall() {
     const data = await api.installPlugin(plugin.id);
     await navigator.clipboard.writeText(data.script);
-    alert("脚本已复制到剪贴板！\n\n使用方法：进入 Bot → 渠道 → Webhook 配置 → 粘贴到脚本框中");
+    alert("脚本已复制到剪贴板！\n\n推荐方式：进入渠道 → Webhook → 插件市场 → 选择此插件一键安装");
     onRefresh();
   }
 
@@ -124,9 +181,7 @@ function PluginCard({ plugin, onRefresh, isAdmin, isLoggedIn, mode }: {
   }
 
   async function toggleScript() {
-    if (!detail) {
-      try { setDetail(await api.getPlugin(plugin.id)); } catch {}
-    }
+    if (!detail) { try { setDetail(await api.getPlugin(plugin.id)); } catch {} }
     setShowScript(!showScript);
   }
 
@@ -137,15 +192,15 @@ function PluginCard({ plugin, onRefresh, isAdmin, isLoggedIn, mode }: {
   const connectDomains = plugin.connect_domains || "*";
   const riskLevel = connectDomains === "*" && grants.includes("reply") ? "high"
     : connectDomains === "*" || grants.includes("reply") ? "medium" : "low";
-  const riskColors = { low: "text-primary", medium: "text-yellow-500", high: "text-destructive" };
-  const riskLabels = { low: "低风险", medium: "中风险", high: "高风险" };
+  const riskColors: Record<string, string> = { low: "text-primary", medium: "text-yellow-500", high: "text-destructive" };
+  const riskLabels: Record<string, string> = { low: "低风险", medium: "中风险", high: "高风险" };
 
   return (
     <Card className="space-y-2">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            {plugin.icon && <span>{plugin.icon}</span>}
+            {plugin.icon && <span className="text-base">{plugin.icon}</span>}
             <span className="font-medium text-sm">{plugin.name}</span>
             <Badge variant={s.variant} className="text-[10px]">{s.label}</Badge>
             <span className="text-[10px] text-muted-foreground">v{plugin.version}</span>
@@ -154,7 +209,6 @@ function PluginCard({ plugin, onRefresh, isAdmin, isLoggedIn, mode }: {
           <p className="text-xs text-muted-foreground mt-0.5">{plugin.description}</p>
           <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground flex-wrap">
             <span>by {plugin.author || "anonymous"}</span>
-            {plugin.namespace && <span className="font-mono">{plugin.namespace}</span>}
             {plugin.submitter_name && <span>提交：{plugin.submitter_name}</span>}
             {plugin.reviewer_name && <span>审核：{plugin.reviewer_name}</span>}
             <span>{plugin.install_count} 次安装</span>
@@ -165,23 +219,19 @@ function PluginCard({ plugin, onRefresh, isAdmin, isLoggedIn, mode }: {
             )}
             {plugin.commit_hash && <span className="font-mono">{plugin.commit_hash.slice(0, 7)}</span>}
           </div>
-          {/* Security info — always show for review, compact for marketplace */}
+          {/* Security summary */}
           <div className="flex items-center gap-2 mt-1 text-[10px] flex-wrap">
-            <span className={riskColors[riskLevel]}>{riskLabels[riskLevel]}</span>
+            <span className={riskColors[riskLevel]}><Shield className="w-3 h-3 inline mr-0.5" />{riskLabels[riskLevel]}</span>
             <span className="text-muted-foreground">权限: {grants.length > 0 ? grants.join(", ") : "none"}</span>
             <span className="text-muted-foreground">消息: {matchTypes}</span>
-            <span className="text-muted-foreground">域名: {connectDomains}</span>
+            {connectDomains !== "*" && <span className="text-muted-foreground">域名: {connectDomains}</span>}
           </div>
-          {plugin.reject_reason && (
-            <p className="text-[10px] text-destructive mt-0.5">拒绝原因：{plugin.reject_reason}</p>
-          )}
+          {plugin.reject_reason && <p className="text-[10px] text-destructive mt-0.5">拒绝原因：{plugin.reject_reason}</p>}
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {plugin.github_url && (
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={toggleScript}>
-              {showScript ? "收起" : "源码"}
-            </Button>
-          )}
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={toggleScript}>
+            {showScript ? "收起" : "源码"}
+          </Button>
           {mode === "marketplace" && plugin.status === "approved" && isLoggedIn && (
             <Button size="sm" variant="outline" className="h-7 text-xs" onClick={handleInstall}>
               <Download className="w-3 h-3 mr-1" /> 安装
@@ -189,9 +239,6 @@ function PluginCard({ plugin, onRefresh, isAdmin, isLoggedIn, mode }: {
           )}
           {mode === "review" && (
             <>
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={toggleScript}>
-                {showScript ? "收起" : "脚本"}
-              </Button>
               <Button size="sm" className="h-7 text-xs" onClick={() => handleReview("approved")}>
                 <Check className="w-3 h-3 mr-1" /> 通过
               </Button>
@@ -214,14 +261,16 @@ function PluginCard({ plugin, onRefresh, isAdmin, isLoggedIn, mode }: {
         </div>
       )}
 
-      {showScript && (detail?.script || plugin.github_url) && (
-        <div className="space-y-1">
+      {showScript && (
+        <div>
           {detail?.script ? (
-            <pre className="text-[10px] bg-card border rounded p-3 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap">{detail.script}</pre>
-          ) : (
+            <pre className="text-[10px] bg-background border rounded p-3 overflow-x-auto max-h-64 overflow-y-auto whitespace-pre-wrap font-mono">{detail.script}</pre>
+          ) : plugin.github_url ? (
             <a href={plugin.github_url} target="_blank" rel="noopener" className="text-xs text-primary flex items-center gap-1">
               <ExternalLink className="w-3 h-3" /> 在 GitHub 查看源码
             </a>
+          ) : (
+            <p className="text-[10px] text-muted-foreground">登录后可查看脚本源码</p>
           )}
         </div>
       )}
@@ -240,27 +289,51 @@ function SubmitForm({ onSubmitted }: { onSubmitted: () => void }) {
     e.preventDefault();
     const data = mode === "github" ? { github_url: url.trim() } : { script: script.trim() };
     if (!data.github_url && !data.script) return;
-    setSubmitting(true);
-    setError("");
+    setSubmitting(true); setError("");
     try {
       await api.submitPlugin(data);
       setUrl(""); setScript("");
       onSubmitted();
-    } catch (err: any) {
-      setError(err.message);
-    }
+    } catch (err: any) { setError(err.message); }
     setSubmitting(false);
   }
 
   const canSubmit = mode === "github" ? !!url.trim() : !!script.trim();
 
+  const templateScript = `// ==WebhookPlugin==
+// @name         我的插件
+// @namespace    github.com/yourname
+// @version      1.0.0
+// @description  插件功能描述
+// @author       你的名字
+// @license      MIT
+// @icon         🔔
+// @match        text
+// @connect      *
+// @grant        none
+// ==/WebhookPlugin==
+
+function onRequest(ctx) {
+  ctx.req.body = JSON.stringify({
+    text: ctx.msg.sender + ": " + ctx.msg.content
+  });
+}`;
+
   return (
     <div className="space-y-4">
+      {/* AI development tip */}
+      <Card className="flex items-start gap-3 bg-primary/5 border-primary/20">
+        <Bot className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        <div className="text-xs">
+          <p className="font-medium">推荐：让 AI 帮你写插件</p>
+          <p className="text-muted-foreground mt-0.5">
+            将 <a href="/api/webhook-plugins/skill.md" target="_blank" className="text-primary hover:underline">skill.md</a> 链接发给 AI 助手，描述你的需求，AI 会生成完整的插件代码。生成后粘贴到下方提交即可。
+          </p>
+        </div>
+      </Card>
+
       <Card className="space-y-3">
         <h3 className="text-sm font-medium">提交 Webhook 插件</h3>
-        <p className="text-xs text-muted-foreground">
-          提交插件后由管理员审核，通过后其他用户可一键安装。
-        </p>
 
         <div className="flex border rounded-lg overflow-hidden w-fit">
           <button className={`px-3 py-1 text-xs cursor-pointer ${mode === "github" ? "bg-secondary" : "text-muted-foreground"}`} onClick={() => setMode("github")}>GitHub 链接</button>
@@ -270,170 +343,57 @@ function SubmitForm({ onSubmitted }: { onSubmitted: () => void }) {
         <form onSubmit={handleSubmit} className="space-y-2">
           {mode === "github" ? (
             <>
-              <Input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
+              <Input value={url} onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://github.com/user/repo/blob/main/plugin.js"
-                className="h-8 text-xs font-mono"
-              />
-              <p className="text-[10px] text-muted-foreground">系统会自动拉取脚本并固定 commit hash，确保审核的代码就是实际运行的代码。</p>
+                className="h-8 text-xs font-mono" />
+              <p className="text-[10px] text-muted-foreground">自动拉取脚本并固定 commit hash，确保审核的代码就是运行的代码。</p>
             </>
           ) : (
             <>
-              <textarea
-                value={script}
-                onChange={(e) => setScript(e.target.value)}
-                placeholder={"// @name 插件名称\n// @description 插件描述\n// @author 你的名字\n// @version 1.0.0\n\nfunction onRequest(ctx) {\n  // ...\n}"}
-                rows={12}
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-xs font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring resize-none"
-              />
-              <p className="text-[10px] text-muted-foreground">直接粘贴脚本内容，需包含 // @name 元数据声明。</p>
+              <textarea value={script} onChange={(e) => setScript(e.target.value)}
+                placeholder={templateScript}
+                rows={16}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-[11px] font-mono placeholder:text-muted-foreground/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring resize-none" />
+              <p className="text-[10px] text-muted-foreground">
+                使用 <code className="bg-secondary px-1 rounded">{"// ==WebhookPlugin=="}</code> 格式声明元数据。
+                <a href="/api/webhook-plugins/skill.md" target="_blank" className="text-primary hover:underline ml-1">查看完整规范</a>
+              </p>
             </>
           )}
-          <div className="flex justify-end">
-            <Button type="submit" size="sm" disabled={submitting || !canSubmit}>
+          <div className="flex items-center justify-between">
+            {error && <span className="text-xs text-destructive">{error}</span>}
+            <Button type="submit" size="sm" disabled={submitting || !canSubmit} className="ml-auto">
               <Send className="w-3.5 h-3.5 mr-1" /> {submitting ? "提交中..." : "提交审核"}
             </Button>
           </div>
         </form>
-        {error && <p className="text-xs text-destructive">{error}</p>}
       </Card>
 
-      {/* Plugin format specification */}
-      <Card className="space-y-3">
-        <h3 className="text-sm font-medium">插件开发指南</h3>
-
-        <div className="space-y-3 text-xs">
-          <div>
-            <p className="font-medium mb-1">基本结构</p>
-            <p className="text-muted-foreground mb-2">插件是一个 JavaScript 文件，通过注释声明元数据，导出 onRequest / onResponse 函数。</p>
-            <pre className="bg-card border rounded p-3 overflow-x-auto text-[10px]">{`// @name 插件名称（必填）
-// @description 插件的功能描述
-// @author 你的名字
-// @version 1.0.0
-// @config webhook_url string "Webhook 地址"
-// @config secret string? "签名密钥（可选）"
-
-// 发送前：修改请求
-function onRequest(ctx) {
-  // ctx.msg  — 收到的消息（只读）
-  //   .sender     发送者 ID
-  //   .content    文本内容
-  //   .msg_type   消息类型 (text/image/voice/video/file)
-  //   .channel_id 渠道 ID
-  //   .bot_id     Bot ID
-  //   .timestamp  时间戳 (ms)
-  //   .items[]    消息元素列表
-  //
-  // ctx.req  — HTTP 请求（可修改）
-  //   .url      目标 URL
-  //   .method   HTTP 方法
-  //   .headers  请求头 (object)
-  //   .body     请求体 (string)
-  //
-  // reply(text)  — 通过 Bot 回复消息给发送者
-  // skip()       — 取消这次 webhook 推送
-}
-
-// 收到响应后：处理响应
-function onResponse(ctx) {
-  // ctx.res  — HTTP 响应（只读）
-  //   .status   状态码
-  //   .headers  响应头 (object)
-  //   .body     响应体 (string)
-  //
-  // reply(text) — 仍然可用
-}`}</pre>
+      {/* Quick reference */}
+      <Card className="space-y-2">
+        <h3 className="text-xs font-medium">快速参考</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[10px]">
+          <div className="p-2 rounded border bg-background">
+            <p className="font-medium mb-1">ctx.msg（消息）</p>
+            <p className="text-muted-foreground">.sender .content .msg_type .channel_id .bot_id .timestamp .items[]</p>
           </div>
-
-          <div>
-            <p className="font-medium mb-1">示例 1：飞书群机器人通知</p>
-            <pre className="bg-card border rounded p-3 overflow-x-auto text-[10px]">{`// @name 飞书通知
-// @description 将微信消息转发到飞书群机器人
-// @author openilink
-// @version 1.0.0
-// @config webhook_url string "飞书 Webhook 地址"
-
-function onRequest(ctx) {
-  ctx.req.url = ctx.req.url; // 使用渠道配置的 URL
-  ctx.req.body = JSON.stringify({
-    msg_type: "text",
-    content: {
-      text: "[" + ctx.msg.msg_type + "] "
-        + ctx.msg.sender + ": "
-        + ctx.msg.content
-    }
-  });
-}`}</pre>
+          <div className="p-2 rounded border bg-background">
+            <p className="font-medium mb-1">ctx.req（请求）</p>
+            <p className="text-muted-foreground">.url .method .headers .body</p>
           </div>
-
-          <div>
-            <p className="font-medium mb-1">示例 2：AI 自动回复（转发到 OpenAI）</p>
-            <pre className="bg-card border rounded p-3 overflow-x-auto text-[10px]">{`// @name ChatGPT 回复
-// @description 将消息转发到 OpenAI API 并自动回复
-// @author openilink
-// @version 1.0.0
-// @config api_key string "OpenAI API Key"
-// @config model string? "模型名称（默认 gpt-4o-mini）"
-
-function onRequest(ctx) {
-  ctx.req.url = "https://api.openai.com/v1/chat/completions";
-  ctx.req.headers["Authorization"] = "Bearer YOUR_API_KEY";
-  ctx.req.body = JSON.stringify({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: "你是一个友好的助手" },
-      { role: "user", content: ctx.msg.content }
-    ]
-  });
-}
-
-function onResponse(ctx) {
-  var data = JSON.parse(ctx.res.body);
-  if (data.choices && data.choices[0]) {
-    reply(data.choices[0].message.content);
-  }
-}`}</pre>
+          <div className="p-2 rounded border bg-background">
+            <p className="font-medium mb-1">全局函数</p>
+            <p className="text-muted-foreground">reply(text) skip() JSON.parse/stringify</p>
           </div>
-
-          <div>
-            <p className="font-medium mb-1">示例 3：关键词过滤 + Slack 通知</p>
-            <pre className="bg-card border rounded p-3 overflow-x-auto text-[10px]">{`// @name Slack 关键词通知
-// @description 仅当消息包含关键词时转发到 Slack
-// @author openilink
-// @version 1.0.0
-// @config keywords string "关键词（逗号分隔）"
-
-function onRequest(ctx) {
-  var keywords = ["紧急", "urgent", "bug"];
-  var found = false;
-  for (var i = 0; i < keywords.length; i++) {
-    if (ctx.msg.content.indexOf(keywords[i]) >= 0) {
-      found = true;
-      break;
-    }
-  }
-  if (!found) {
-    skip(); // 不包含关键词，跳过
-    return;
-  }
-  ctx.req.body = JSON.stringify({
-    text: "⚠️ [" + ctx.msg.sender + "] " + ctx.msg.content
-  });
-}`}</pre>
-          </div>
-
-          <div>
-            <p className="font-medium mb-1">安全说明</p>
-            <ul className="text-muted-foreground space-y-1 list-disc pl-4">
-              <li>脚本在安全沙箱中执行，无法访问文件系统、网络或系统 API</li>
-              <li>执行超时 5 秒，超时自动终止</li>
-              <li>禁止使用 eval() 和 Function 构造器</li>
-              <li>reply() 每次最多调用 10 次</li>
-              <li>HTTP 请求由 Hub 发出，已有 10 秒超时</li>
-              <li>所有插件代码需通过管理员审核</li>
-            </ul>
-          </div>
+        </div>
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+          <span><Shield className="w-3 h-3 inline" /> 5s 超时</span>
+          <span>栈深 64</span>
+          <span>禁止 eval/require</span>
+          <span>reply 最多 10 次</span>
+          <a href="/api/webhook-plugins/skill.md" target="_blank" className="text-primary hover:underline ml-auto flex items-center gap-0.5">
+            <BookOpen className="w-3 h-3" /> 完整文档
+          </a>
         </div>
       </Card>
     </div>
