@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { LogOut, Settings } from "lucide-react";
+import { LogOut, Settings, Github } from "lucide-react";
 import { api } from "../lib/api";
 
 export function Layout() {
@@ -21,7 +21,12 @@ export function Layout() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="border-b px-6 py-3 flex items-center justify-between shrink-0">
-        <Link to="/" className="font-semibold text-sm hover:opacity-80">OpenILink Hub</Link>
+        <div className="flex items-center gap-2">
+          <Link to="/" className="font-semibold text-sm hover:opacity-80">OpenILink Hub</Link>
+          <a href="https://github.com/openilink/openilink-hub" target="_blank" rel="noopener" className="text-muted-foreground hover:text-foreground">
+            <Github className="w-4 h-4" />
+          </a>
+        </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">{user.username}</span>
           <Link to="/settings" className="text-muted-foreground hover:text-foreground">
