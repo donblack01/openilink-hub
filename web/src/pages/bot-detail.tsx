@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Send, Cable, Copy, Check, Plus, Trash2, RotateCw, Radio, X, Bot, Webhook, Paperclip, QrCode } from "lucide-react";
+import { ArrowLeft, Send, Cable, Copy, Check, Plus, Trash2, RotateCw, Radio, X, Bot, Webhook, Paperclip, QrCode, Puzzle } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
@@ -658,6 +658,11 @@ function ChannelRow({ botId, channel, onRefresh }: { botId: string; channel: any
               <Webhook className="w-2.5 h-2.5" /> Webhook
             </span>
           )}
+          {channel.webhook_config?.plugin_id && (
+            <span className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+              <Puzzle className="w-2.5 h-2.5" /> 插件
+            </span>
+          )}
         </div>
         <div className="flex gap-1 shrink-0">
           <Button variant={showAI ? "default" : "ghost"} size="sm" onClick={() => setShowAI(!showAI)} title="AI 配置">
@@ -817,9 +822,26 @@ function WebhookPanel({ botId, channelId, config, onSaved }: {
   const [authToken, setAuthToken] = useState(config?.auth?.token || "");
   const [authName, setAuthName] = useState(config?.auth?.name || "");
   const [authValue, setAuthValue] = useState(config?.auth?.value || config?.auth?.secret || "");
+  const [scriptMode, setScriptMode] = useState<"plugin" | "manual">(config?.plugin_id ? "plugin" : "manual");
   const [script, setScript] = useState(config?.script || "");
+  const [pluginId, setPluginId] = useState(config?.plugin_id || "");
+  const [pluginInfo, setPluginInfo] = useState<any>(null);
+  const [plugins, setPlugins] = useState<any[]>([]);
+  const [showPluginPicker, setShowPluginPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (pluginId) {
+      api.getPlugin(pluginId).then(setPluginInfo).catch(() => setPluginInfo(null));
+    }
+  }, [pluginId]);
+
+  useEffect(() => {
+    if (showPluginPicker) {
+      api.listPlugins().then((list) => setPlugins(list || [])).catch(() => {});
+    }
+  }, [showPluginPicker]);
 
   async function handleSave() {
     setSaving(true);
@@ -830,11 +852,33 @@ function WebhookPanel({ botId, channelId, config, onSaved }: {
       else if (authType === "header" && authName) auth = { type: "header", name: authName, value: authValue };
       else if (authType === "hmac" && authValue) auth = { type: "hmac", secret: authValue };
       await api.updateChannel(botId, channelId, {
-        webhook_config: { url, auth, script: script || undefined },
+        webhook_config: {
+          url,
+          auth,
+          plugin_id: scriptMode === "plugin" ? pluginId : undefined,
+          script: scriptMode === "manual" ? (script || undefined) : undefined,
+        },
       });
       onSaved();
     } catch (err: any) { setError(err.message); }
     setSaving(false);
+  }
+
+  async function handleInstallPlugin(id: string) {
+    try {
+      const result = await api.installPluginToChannel(id, botId, channelId);
+      setPluginId(result.plugin_id);
+      setScriptMode("plugin");
+      setScript("");
+      setShowPluginPicker(false);
+      onSaved();
+    } catch (err: any) { setError(err.message); }
+  }
+
+  function handleUninstallPlugin() {
+    setPluginId("");
+    setPluginInfo(null);
+    setScriptMode("manual");
   }
 
   return (
@@ -853,30 +897,73 @@ function WebhookPanel({ botId, channelId, config, onSaved }: {
             </button>
           ))}
         </div>
-        {authType === "bearer" && (
-          <Input placeholder="Token" value={authToken} onChange={(e) => setAuthToken(e.target.value)} className="h-7 text-[11px] font-mono" />
-        )}
+        {authType === "bearer" && <Input placeholder="Token" value={authToken} onChange={(e) => setAuthToken(e.target.value)} className="h-7 text-[11px] font-mono" />}
         {authType === "header" && (
           <div className="flex gap-2">
             <Input placeholder="Header 名" value={authName} onChange={(e) => setAuthName(e.target.value)} className="h-7 text-[11px] font-mono" />
             <Input placeholder="Header 值" value={authValue} onChange={(e) => setAuthValue(e.target.value)} className="h-7 text-[11px] font-mono" />
           </div>
         )}
-        {authType === "hmac" && (
-          <Input placeholder="HMAC Secret" value={authValue} onChange={(e) => setAuthValue(e.target.value)} className="h-7 text-[11px] font-mono" />
+        {authType === "hmac" && <Input placeholder="HMAC Secret" value={authValue} onChange={(e) => setAuthValue(e.target.value)} className="h-7 text-[11px] font-mono" />}
+
+        {/* Script source */}
+        <div className="flex gap-1">
+          <button onClick={() => setScriptMode("plugin")} className={`px-2 py-0.5 text-[10px] rounded cursor-pointer transition-colors ${scriptMode === "plugin" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}>
+            插件市场
+          </button>
+          <button onClick={() => setScriptMode("manual")} className={`px-2 py-0.5 text-[10px] rounded cursor-pointer transition-colors ${scriptMode === "manual" ? "bg-primary text-primary-foreground" : "bg-secondary text-secondary-foreground hover:bg-secondary/80"}`}>
+            手动脚本
+          </button>
+        </div>
+
+        {scriptMode === "plugin" && (
+          <div className="space-y-2">
+            {pluginInfo ? (
+              <div className="flex items-center justify-between p-2 rounded border bg-card">
+                <div className="text-xs">
+                  <span>{pluginInfo.icon} </span>
+                  <span className="font-medium">{pluginInfo.name}</span>
+                  <span className="text-muted-foreground ml-1">v{pluginInfo.version}</span>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{pluginInfo.description}</p>
+                </div>
+                <div className="flex gap-1">
+                  <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setShowPluginPicker(true)}>更换</Button>
+                  <Button variant="ghost" size="sm" className="h-6 text-[10px] text-destructive" onClick={handleUninstallPlugin}>卸载</Button>
+                </div>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" className="w-full text-xs h-7" onClick={() => setShowPluginPicker(true)}>
+                <Puzzle className="w-3 h-3 mr-1" /> 选择插件
+              </Button>
+            )}
+
+            {showPluginPicker && (
+              <div className="border rounded p-2 space-y-1 max-h-40 overflow-y-auto bg-card">
+                {plugins.length === 0 && <p className="text-[10px] text-muted-foreground text-center py-2">暂无可用插件</p>}
+                {plugins.map((p) => (
+                  <button key={p.id} onClick={() => handleInstallPlugin(p.id)} className="w-full text-left p-1.5 rounded hover:bg-secondary cursor-pointer text-xs flex items-center justify-between">
+                    <span>{p.icon} {p.name} <span className="text-muted-foreground">v{p.version}</span></span>
+                    <span className="text-[10px] text-muted-foreground">{p.install_count} 安装</span>
+                  </button>
+                ))}
+                <button onClick={() => setShowPluginPicker(false)} className="w-full text-center text-[10px] text-muted-foreground hover:text-primary cursor-pointer py-1">取消</button>
+              </div>
+            )}
+          </div>
         )}
 
-        {/* Script */}
-        <textarea
-          placeholder={`JS 中间件（可选）\n\nfunction onRequest(ctx) {\n  ctx.req.body = JSON.stringify({text: ctx.msg.content});\n}\n\nfunction onResponse(ctx) {\n  var data = JSON.parse(ctx.res.body);\n  if (data.reply) reply(data.reply);\n}`}
-          value={script}
-          onChange={(e) => setScript(e.target.value)}
-          rows={5}
-          className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-[11px] font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring resize-none"
-        />
+        {scriptMode === "manual" && (
+          <textarea
+            placeholder={`JS 中间件（可选）\n\nfunction onRequest(ctx) {\n  ctx.req.body = JSON.stringify({text: ctx.msg.content});\n}`}
+            value={script}
+            onChange={(e) => setScript(e.target.value)}
+            rows={5}
+            className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-[11px] font-mono placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring resize-none"
+          />
+        )}
       </div>
       <div className="flex items-center justify-between">
-        <p className="text-[10px] text-muted-foreground">收到消息时 POST 到此 URL。响应 {"{"}"reply":"..."{"}"}  自动回复用户。</p>
+        <p className="text-[10px] text-muted-foreground">收到消息时 POST 到此 URL。</p>
         <div className="flex items-center gap-2">
           {error && <span className="text-[10px] text-destructive">{error}</span>}
           <Button size="sm" className="h-7" onClick={handleSave} disabled={saving}>{saving ? "..." : "保存"}</Button>

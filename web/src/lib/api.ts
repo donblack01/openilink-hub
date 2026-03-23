@@ -80,6 +80,8 @@ export const api = {
   getPlugin: (id: string) => request<any>(`/api/webhook-plugins/${id}`),
   submitPlugin: (data: { github_url?: string; script?: string }) => request<any>("/api/webhook-plugins/submit", { method: "POST", body: JSON.stringify(data) }),
   installPlugin: (id: string) => request<any>(`/api/webhook-plugins/${id}/install`, { method: "POST" }),
+  installPluginToChannel: (id: string, botId: string, channelId: string) =>
+    request<any>(`/api/webhook-plugins/${id}/install-to-channel`, { method: "POST", body: JSON.stringify({ bot_id: botId, channel_id: channelId }) }),
   reviewPlugin: (id: string, status: string, reason?: string) =>
     request(`/api/admin/webhook-plugins/${id}/review`, { method: "PUT", body: JSON.stringify({ status, reason: reason || "" }) }),
   deletePlugin: (id: string) => request(`/api/admin/webhook-plugins/${id}`, { method: "DELETE" }),
