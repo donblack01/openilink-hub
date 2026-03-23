@@ -262,15 +262,88 @@ function onRequest(ctx) {
 }
 ```
 
-## Submission Process
+## Publishing a Plugin
 
-1. Host your plugin `.js` file in a public GitHub repository
-2. Go to the OpenILink Hub plugin marketplace and click "Submit Plugin"
-3. Paste the GitHub blob URL (e.g. `https://github.com/user/repo/blob/main/my-plugin.js`)
-4. Or paste the script content directly
-5. The system fetches the code and pins the commit hash
-6. An admin reviews and approves/rejects the plugin
-7. Once approved, other users can install it with one click
+### Step 1: Create a GitHub Repository
+
+Create a dedicated public repository for your plugin (recommended) or add it to an existing repo.
+
+Recommended repo structure:
+
+```
+my-webhook-plugin/
+├── plugin.js          ← your plugin file
+├── README.md          ← usage instructions
+└── LICENSE            ← open source license (MIT, Apache-2.0, etc.)
+```
+
+The plugin file should contain the full `==WebhookPlugin==` metadata block.
+
+### Step 2: Write and Test Your Plugin
+
+Write your plugin following the format above. Before submitting, verify:
+
+- [ ] `// @name` is present (required)
+- [ ] `// @match` is set to the message types you actually need (avoid `*` if possible)
+- [ ] `// @connect` is limited to the domains you actually call (avoid `*` if possible)
+- [ ] `// @grant` declares only the permissions you use (`none` if no reply/skip)
+- [ ] No ES6+ syntax (no `const`, `let`, `=>`, template literals)
+- [ ] No infinite loops or excessive recursion
+- [ ] `JSON.stringify()` is used to set `ctx.req.body`
+
+### Step 3: Submit to the Marketplace
+
+**Option A: Submit via GitHub URL (recommended)**
+
+1. Push your plugin to GitHub
+2. Go to the OpenILink Hub plugin marketplace → "Submit Plugin" tab
+3. Paste the GitHub blob URL, e.g.:
+   ```
+   https://github.com/yourname/my-webhook-plugin/blob/main/plugin.js
+   ```
+4. The system automatically:
+   - Fetches the script content
+   - Pins the exact commit hash (ensures what's reviewed is what runs)
+   - Parses all `@metadata` fields
+5. Click "Submit for Review"
+
+**Option B: Submit via direct paste**
+
+1. Go to the plugin marketplace → "Submit Plugin" tab
+2. Switch to "Paste Script" mode
+3. Paste your full plugin code
+4. Click "Submit for Review"
+
+### Step 4: Admin Review
+
+An administrator will review your plugin:
+
+- **Security analysis**: automatic checks for risky patterns (infinite loops, prototype pollution, wildcard domains)
+- **Permission review**: @grant, @connect, @match declarations
+- **Code review**: manual inspection of the script logic
+- **Approve**: plugin appears in the marketplace for all users
+- **Reject**: you'll see the rejection reason and can fix + resubmit
+
+### Step 5: Users Install Your Plugin
+
+Once approved, users can install your plugin in two ways:
+
+1. **From the marketplace**: click "Install" to copy the script
+2. **From channel config**: go to Bot → Channel → Webhook → "Plugin Marketplace" → select your plugin → one-click install
+
+The channel's `webhook_config.plugin_id` is set to your plugin's ID. At runtime, the system fetches the script from the database — no manual copy needed.
+
+### Updating Your Plugin
+
+To publish a new version:
+
+1. Update your plugin code (bump `@version`)
+2. Push to GitHub
+3. Submit the new URL (same repo, new commit)
+4. Admin reviews the new version
+5. Users can upgrade their channels to the new version from channel settings
+
+Each version has a separate plugin ID. Channels pin to a specific version until the user explicitly upgrades.
 
 ## API Endpoints
 
